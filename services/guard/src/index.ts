@@ -2,6 +2,11 @@ import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
 import { createServiceApp } from '@nabuos/service-kit';
 import {
+  ArtifactError,
+  fetchNpmArtifact,
+  fetchNpmInventory,
+} from '@nabuos/npm-artifact';
+import {
   createNpmRegistryClient,
   NpmRegistryError,
 } from '@nabuos/npm-registry';
@@ -31,6 +36,56 @@ app.get('/v1/guard/npm/:name/:version', async (c) => {
   } catch (err) {
     if (err instanceof NpmRegistryError) {
       return c.json({ error: err.code, message: err.message }, err.status === 404 ? 404 : 502);
+    }
+    throw err;
+  }
+});
+
+/** Download tarball, verify dist.integrity, store + extract (Epic 1.2) */
+app.get('/v1/guard/npm/:name/:version/artifact', async (c) => {
+  const name = decodeURIComponent(c.req.param('name'));
+  const version = c.req.param('version');
+  try {
+    const doc = await npm.getVersion(name, version);
+    const artifact = await fetchNpmArtifact(name, version, doc);
+    return c.json(artifact);
+  } catch (err) {
+    if (err instanceof NpmRegistryError) {
+      return c.json({ error: err.code, message: err.message }, err.status === 404 ? 404 : 502);
+    }
+    if (err instanceof ArtifactError) {
+      const status =
+        err.code === 'integrity_verification_failed' || err.code === 'no_integrity_metadata'
+          ? 422
+          : err.code === 'tarball_host_not_allowed' || err.code === 'invalid_tarball_url'
+            ? 400
+            : 502;
+      return c.json({ error: err.code, message: err.message }, status);
+    }
+    throw err;
+  }
+});
+
+/** Inventory from extracted tarball — scripts, deps, entrypoints, file stats (Epic 1.3) */
+app.get('/v1/guard/npm/:name/:version/inventory', async (c) => {
+  const name = decodeURIComponent(c.req.param('name'));
+  const version = c.req.param('version');
+  try {
+    const doc = await npm.getVersion(name, version);
+    const { artifact, inventory } = await fetchNpmInventory(name, version, doc);
+    return c.json({ artifact, inventory });
+  } catch (err) {
+    if (err instanceof NpmRegistryError) {
+      return c.json({ error: err.code, message: err.message }, err.status === 404 ? 404 : 502);
+    }
+    if (err instanceof ArtifactError) {
+      const status =
+        err.code === 'integrity_verification_failed' || err.code === 'no_integrity_metadata'
+          ? 422
+          : err.code === 'tarball_host_not_allowed' || err.code === 'invalid_tarball_url'
+            ? 400
+            : 502;
+      return c.json({ error: err.code, message: err.message }, status);
     }
     throw err;
   }

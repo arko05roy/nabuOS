@@ -8,7 +8,8 @@
     "typecheck": "pnpm -r run typecheck",
     "health:check": "node scripts/check-health.mjs",
     "smoke:btl": "node --env-file=.env scripts/smoke-btl.mjs",
-    "smoke:npm": "node scripts/smoke-npm.mjs"
+    "smoke:npm": "node scripts/smoke-npm.mjs",
+    "smoke:artifact": "node scripts/smoke-artifact.mjs"
   },
   "engines": {
     "node": ">=20"

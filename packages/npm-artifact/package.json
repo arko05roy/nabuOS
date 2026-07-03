@@ -1,0 +1,24 @@
+{
+  "name": "@nabuos/npm-artifact",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "self-check": "node dist/self-check.js"
+  },
+  "dependencies": {
+    "@nabuos/npm-registry": "workspace:*",
+    "tar": "^7.4.3"
+  },
+  "devDependencies": {
+    "@types/tar": "^6.1.13"
+  }
+}

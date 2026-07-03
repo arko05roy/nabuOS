@@ -53,6 +53,7 @@ Stack: **pnpm workspaces**, **TypeScript (ESM)**, **Hono** + `@hono/node-server`
 | `pnpm health:check` | Hit `/healthz` + `/readyz` on all services (must be running) |
 | `pnpm smoke:btl` | Live `GET /models` + `POST /chat/completions` via BTL (`btl-2` default) |
 | `pnpm smoke:npm` | Live npm metadata via guard (`axios`, `lodash`, `@babel/core`) |
+| `pnpm smoke:artifact` | Live tarball download, SRI verify, extract + inventory (`axios@1.6.0`, `lodash@4.17.21`) |
 
 ### Sprint 0 status
 
@@ -75,7 +76,9 @@ Stack: **pnpm workspaces**, **TypeScript (ESM)**, **Hono** + `@hono/node-server`
 | 1.1 | 2. `getVersion` | **Done** (guard `GET /v1/guard/npm/:name/:version`) |
 | 1.1 | 3. Scoped name encoding | **Done** (`encodeURIComponent`, smoke: `@babel/core`) |
 | 1.1 | Acceptance: metadata snapshot storage | **Not started** (returns live JSON only; no DB yet) |
-| 1.2–1.6 | Artifact, inventory, OSV, BTL triage, public audit API | **Not started** |
+| 1.2 | Artifact download + integrity | **Done** (`@nabuos/npm-artifact`, guard `GET /v1/guard/npm/:name/:version/artifact`) |
+| 1.3 | Inventory | **Done** (guard `GET /v1/guard/npm/:name/:version/inventory`, `pnpm smoke:artifact`) |
+| 1.4–1.6 | OSV, BTL triage, public audit API | **Not started** |
 
 ### Live API routes (implemented)
 
@@ -84,6 +87,8 @@ Stack: **pnpm workspaces**, **TypeScript (ESM)**, **Hono** + `@hono/node-server`
 - `GET /healthz`, `GET /readyz`
 - `GET /v1/guard/npm/:name` — live packument from `registry.npmjs.org`
 - `GET /v1/guard/npm/:name/:version` — version doc with `dist.tarball`, `dist.integrity`, scripts, deps
+- `GET /v1/guard/npm/:name/:version/artifact` — download tarball, verify SRI, store + extract
+- `GET /v1/guard/npm/:name/:version/inventory` — scripts, deps, entrypoints, file stats from extracted source
 
 **Mind** (`services/mind`, port 3002):
 
@@ -115,6 +120,7 @@ Stack: **pnpm workspaces**, **TypeScript (ESM)**, **Hono** + `@hono/node-server`
 | `@nabuos/service-kit` | Shared `/healthz` and `/readyz` |
 | `@nabuos/btl-runtime` | Live BTL HTTP client (`ping`, `chatCompletion`, header parsing) |
 | `@nabuos/npm-registry` | Live npm registry client (`getPackument`, `getVersion`) |
+| `@nabuos/npm-artifact` | Tarball download, SRI/shasum verify, local artifact store, extract, inventory |
 | `@nabuos/env-secrets` | v0 vault hack: `secret://env/gateway-api-key` → `GATEWAY_API_KEY` |
 
 ### Definition of Done — partial compliance
@@ -1320,7 +1326,7 @@ Goal:
 
 - Public API can audit a real npm package version with real metadata, real tarball hash verification, OSV, deps.dev, inventory, and BTL triage.
 
-**Sprint 1 progress:** Epic 1.1 core client and guard HTTP routes done; metadata snapshot persistence and Epics 1.2–1.6 not started.
+**Sprint 1 progress:** Epic 1.1–1.3 done (metadata, artifact, inventory); Epic 1.4–1.6 not started.
 
 ### Epic 1.1: npm Metadata Adapter — **DONE** (routes + client; DB snapshot pending)
 
@@ -1350,39 +1356,48 @@ Acceptance:
 - ⏳ Stores raw metadata snapshot. **Not started** — responses are live JSON; Postgres/object storage in a later story.
 - ✅ Handles 404 as `package_not_found`.
 
-### Epic 1.2: Artifact Download and Integrity — **NOT STARTED**
+### Epic 1.2: Artifact Download and Integrity — **DONE**
 
 Stories:
 
-1. Download npm tarball to object storage.
-2. Verify SRI `dist.integrity`.
-3. Compute SHA256 for nabu artifact identity.
-4. Extract tarball to isolated temp directory.
+1. ✅ Download npm tarball to object storage.
+   - v0: local FS via `NABU_ARTIFACT_DIR` (default `.nabu-artifacts/`); ponytail upgrade path = S3
+   - Package: `@nabuos/npm-artifact`
+   - Route: `GET /v1/guard/npm/:name/:version/artifact`
+
+2. ✅ Verify SRI `dist.integrity`.
+   - W3C SRI format `sha256|sha384|sha512-<base64>` per npm registry docs
+   - Falls back to legacy `dist.shasum` (SHA-1, marked weak)
+
+3. ✅ Compute SHA256 for nabu artifact identity.
+
+4. ✅ Extract tarball to isolated temp directory.
+   - `tar` with `strip: 1`, path traversal filter, post-extract file walk
 
 Acceptance:
 
-- `axios@1.6.0` tarball downloads from npm.
-- Hash verification succeeds.
-- Tampered local artifact fails verification in test.
-- Extracted files are listed from real tarball contents.
+- ✅ `axios@1.6.0` tarball downloads from npm (`pnpm smoke:artifact`)
+- ✅ Hash verification succeeds (live `dist.integrity` from registry.npmjs.org)
+- ✅ Tampered buffer fails verification (self-check + smoke)
+- ✅ Extracted files listed from real tarball contents
 
-### Epic 1.3: Inventory
+### Epic 1.3: Inventory — **DONE**
 
 Stories:
 
-1. Parse `package.json`.
-2. Extract scripts.
-3. Extract dependencies.
-4. Extract entrypoints.
-5. Compute file stats:
+1. ✅ Parse `package.json`.
+2. ✅ Extract scripts.
+3. ✅ Extract dependencies.
+4. ✅ Extract entrypoints (`main`, `module`, `types`, `exports`).
+5. ✅ Compute file stats:
    - file count
    - total size
    - extension histogram
 
 Acceptance:
 
-- Inventory for real npm package includes real scripts/deps/files.
-- No LLM involved in inventory.
+- ✅ Inventory for real npm package includes real scripts/deps/files (`pnpm smoke:artifact`)
+- ✅ No LLM involved in inventory
 
 ### Epic 1.4: deps.dev and OSV
 
@@ -2105,7 +2120,7 @@ Mitigation:
 
 If starting today:
 
-1. ~~Build `guard-service` npm fast audit.~~ **In progress** — Epic 1.1 done; continue 1.2 artifact download.
+1. ~~Build `guard-service` npm fast audit.~~ **In progress** — Epics 1.1–1.3 done; continue 1.4 OSV/deps.dev.
 2. Add OSV/deps.dev.
 3. Add BTL triage.
 4. Add PyPI adapter.
@@ -2116,7 +2131,7 @@ If starting today:
 9. Add Pulse package watch.
 10. Add gVisor sandbox.
 
-**Completed so far (2026-07-04):** Sprint 0 foundation, BTL client, env-based vault hack, npm metadata adapter + guard routes.
+**Completed so far (2026-07-04):** Sprint 0 foundation, BTL client, env-based vault hack, npm metadata adapter + guard routes, artifact download/integrity + inventory.
 
 Reason:
 
