@@ -1,0 +1,10 @@
+{
+  "name": "@nabuos/web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "echo 'web app not yet implemented — Sprint 8+'",
+    "build": "echo 'web app not yet implemented'",
+    "typecheck": "echo 'ok'"
+  }
+}

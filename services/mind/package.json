@@ -1,0 +1,21 @@
+{
+  "name": "@nabuos/mind",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx watch src/index.ts",
+    "start": "node --env-file=../../.env dist/index.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.14.4",
+    "@nabuos/btl-runtime": "workspace:*",
+    "@nabuos/service-kit": "workspace:*",
+    "hono": "^4.7.11"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.4"
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "name": "nabuos",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "pnpm -r run build",
+    "dev": "pnpm -r --parallel run dev",
+    "typecheck": "pnpm -r run typecheck",
+    "health:check": "node scripts/check-health.mjs",
+    "smoke:btl": "node --env-file=.env scripts/smoke-btl.mjs",
+    "smoke:npm": "node scripts/smoke-npm.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "packageManager": "pnpm@10.6.5",
+  "devDependencies": {
+    "@types/node": "^22.15.21",
+    "typescript": "^5.8.3"
+  }
+}
