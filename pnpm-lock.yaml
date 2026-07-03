@@ -23,7 +23,27 @@ importers:
         specifier: workspace:*
         version: link:../types
 
+  packages/deps-dev: {}
+
   packages/env-secrets: {}
+
+  packages/guard-triage:
+    dependencies:
+      '@nabuos/btl-runtime':
+        specifier: workspace:*
+        version: link:../btl-runtime
+      '@nabuos/deps-dev':
+        specifier: workspace:*
+        version: link:../deps-dev
+      '@nabuos/npm-artifact':
+        specifier: workspace:*
+        version: link:../npm-artifact
+      '@nabuos/osv':
+        specifier: workspace:*
+        version: link:../osv
+      '@nabuos/types':
+        specifier: workspace:*
+        version: link:../types
 
   packages/npm-artifact:
     dependencies:
@@ -39,6 +59,8 @@ importers:
         version: 6.1.13
 
   packages/npm-registry: {}
+
+  packages/osv: {}
 
   packages/sdk:
     dependencies:
@@ -78,12 +100,21 @@ importers:
       '@hono/node-server':
         specifier: ^1.14.4
         version: 1.19.14(hono@4.12.27)
+      '@nabuos/deps-dev':
+        specifier: workspace:*
+        version: link:../../packages/deps-dev
+      '@nabuos/guard-triage':
+        specifier: workspace:*
+        version: link:../../packages/guard-triage
       '@nabuos/npm-artifact':
         specifier: workspace:*
         version: link:../../packages/npm-artifact
       '@nabuos/npm-registry':
         specifier: workspace:*
         version: link:../../packages/npm-registry
+      '@nabuos/osv':
+        specifier: workspace:*
+        version: link:../../packages/osv
       '@nabuos/service-kit':
         specifier: workspace:*
         version: link:../../packages/service-kit

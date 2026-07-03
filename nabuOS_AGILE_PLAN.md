@@ -1,7 +1,7 @@
 # nabuOS Agile Plan
 
-Version: 0.2  
-Date: 2026-07-04  
+Version: 0.4  
+Date: 2026-07-04 (Epics 1.4–1.5 shipped)  
 Product name: nabuOS  
 North star: A real agent operating system where package trust, secrets, deployment, memory, and decision-making are exposed as usable services, and where every agent decision is backed by BTL Runtime + evidence.
 
@@ -17,6 +17,8 @@ External services active in development:
 |---------|--------|-------|
 | BTL Runtime | **Active** | `GATEWAY_API_KEY` in `.env`, `@nabuos/btl-runtime`, `pnpm smoke:btl` |
 | npm registry | **Active** | Public API, no key; `@nabuos/npm-registry`, `pnpm smoke:npm` |
+| deps.dev | **Active** | Public API, no key; `@nabuos/deps-dev`, `pnpm smoke:enrichment` |
+| OSV | **Active** | Public API, no key; `@nabuos/osv`, local vuln detail cache |
 | RetainDB | **Deferred** | No API key yet; memory persistence skipped until provisioned |
 | Infisical / HashiCorp Vault | **Deferred** | `@nabuos/env-secrets` resolves `secret://env/*` from process env |
 
@@ -27,7 +29,7 @@ See `docs/scope.md`.
 ```
 apps/web
 services/api-gateway, guard, mind, vault, run, sandbox-worker
-packages/types, sdk, service-kit, btl-runtime, npm-registry, env-secrets
+packages/types, sdk, service-kit, btl-runtime, npm-registry, npm-artifact, deps-dev, osv, guard-triage, env-secrets
 infra/, docs/
 ```
 
@@ -38,7 +40,7 @@ Stack: **pnpm workspaces**, **TypeScript (ESM)**, **Hono** + `@hono/node-server`
 | Service | Port | `/readyz` |
 |---------|------|-----------|
 | api-gateway | 3100 | process |
-| guard | 3001 | process |
+| guard | 3001 | process; triage needs `GATEWAY_API_KEY` — start with `node --env-file=../../.env dist/index.js` |
 | mind | 3002 | process + live BTL `GET /v1/models` |
 | vault | 3003 | process + env secret handles configured |
 | run | 3004 | process |
@@ -54,6 +56,8 @@ Stack: **pnpm workspaces**, **TypeScript (ESM)**, **Hono** + `@hono/node-server`
 | `pnpm smoke:btl` | Live `GET /models` + `POST /chat/completions` via BTL (`btl-2` default) |
 | `pnpm smoke:npm` | Live npm metadata via guard (`axios`, `lodash`, `@babel/core`) |
 | `pnpm smoke:artifact` | Live tarball download, SRI verify, extract + inventory (`axios@1.6.0`, `lodash@4.17.21`) |
+| `pnpm smoke:enrichment` | Live deps.dev graph + OSV batch (`axios@1.6.0`) |
+| `pnpm smoke:triage` | Live BTL triage via guard (`axios@1.6.0`; guard needs `--env-file=../../.env`) |
 
 ### Sprint 0 status
 
@@ -68,7 +72,7 @@ Stack: **pnpm workspaces**, **TypeScript (ESM)**, **Hono** + `@hono/node-server`
 | 0.2 | 4. Secrets outside repository | **Done** (`.env` gitignored, `.env.example` committed) |
 | 0.3 | 1–3. OpenTelemetry | **Not started** |
 
-### Sprint 1 status (in progress)
+### Sprint 1 status (Epic 1.6 remaining)
 
 | Epic | Story | Status |
 |------|-------|--------|
@@ -78,7 +82,9 @@ Stack: **pnpm workspaces**, **TypeScript (ESM)**, **Hono** + `@hono/node-server`
 | 1.1 | Acceptance: metadata snapshot storage | **Not started** (returns live JSON only; no DB yet) |
 | 1.2 | Artifact download + integrity | **Done** (`@nabuos/npm-artifact`, guard `GET /v1/guard/npm/:name/:version/artifact`) |
 | 1.3 | Inventory | **Done** (guard `GET /v1/guard/npm/:name/:version/inventory`, `pnpm smoke:artifact`) |
-| 1.4–1.6 | OSV, BTL triage, public audit API | **Not started** |
+| 1.4 | deps.dev + OSV | **Done** (`@nabuos/deps-dev`, `@nabuos/osv`, guard `/dependencies` + `/vulnerabilities`, `pnpm smoke:enrichment`) |
+| 1.5 | BTL Runtime triage | **Done** (`@nabuos/guard-triage`, guard `GET /v1/guard/npm/:name/:version/triage`, `pnpm smoke:triage`) |
+| 1.6 | Public audit API | **Not started** |
 
 ### Live API routes (implemented)
 
@@ -87,8 +93,22 @@ Stack: **pnpm workspaces**, **TypeScript (ESM)**, **Hono** + `@hono/node-server`
 - `GET /healthz`, `GET /readyz`
 - `GET /v1/guard/npm/:name` — live packument from `registry.npmjs.org`
 - `GET /v1/guard/npm/:name/:version` — version doc with `dist.tarball`, `dist.integrity`, scripts, deps
-- `GET /v1/guard/npm/:name/:version/artifact` — download tarball, verify SRI, store + extract
-- `GET /v1/guard/npm/:name/:version/inventory` — scripts, deps, entrypoints, file stats from extracted source
+- `GET /v1/guard/npm/:name/:version/artifact` — download tarball from `dist.tarball`, verify SRI, cache + extract
+  - Response: `sha256`, `integrity_verified`, `integrity_algorithm`, `integrity_weak`, `storage_path`, `extract_dir`, `extracted_files`
+- `GET /v1/guard/npm/:name/:version/inventory` — `{ artifact, inventory }` from extracted source
+  - Inventory: `scripts`, `dependencies`, `dev_dependencies`, `entrypoints` (`main`/`module`/`types`/`exports`), `files` (count, bytes, extension histogram, paths)
+- `GET /v1/guard/npm/:name/:version/dependencies` — live deps.dev graph (`nodes`, `edges`, `relation`, cached)
+- `GET /v1/guard/npm/:name/:version/vulnerabilities` — OSV `querybatch` + vuln details for graph packages (`phases`, `cache_hits`)
+- `GET /v1/guard/npm/:name/:version/triage` — BTL triage JSON (`risk_score`, `verdict_recommendation`, `findings`, `btl_runtime` headers)
+
+**npm fast audit pipeline (v0, per-route — Epic 1.6 will unify as `POST /v1/guard/audits`):**
+
+1. `GET .../:version` — registry metadata
+2. `GET .../artifact` — download + SRI verify + extract
+3. `GET .../inventory` — deterministic package inventory
+4. `GET .../dependencies` — deps.dev resolved graph
+5. `GET .../vulnerabilities` — OSV batch + cached vuln details
+6. `GET .../triage` — BTL classification over steps 1–5 evidence
 
 **Mind** (`services/mind`, port 3002):
 
@@ -111,6 +131,38 @@ Stack: **pnpm workspaces**, **TypeScript (ESM)**, **Hono** + `@hono/node-server`
 - Cost proof headers observed: `x-btl-benchmark-cost`, `x-btl-customer-charge`, `x-btl-saved`. `x-btl-request-id` may be absent on some responses.
 - See `docs/btl-runtime.md`
 
+### npm artifact + inventory notes (learned, Epic 1.2–1.3)
+
+- Package: `@nabuos/npm-artifact` — `fetchNpmArtifact`, `fetchNpmInventory`, `verifySriIntegrity`, `buildInventory`
+- Tarball source: `dist.tarball` URL from live `getVersion`; download host restricted to `registry.npmjs.org` (SSRF guard)
+- Integrity: npm `dist.integrity` (W3C SRI `sha256|sha384|sha512-<base64>`); legacy `dist.shasum` (SHA-1) only when integrity absent, flagged `integrity_weak: true`
+- Artifact identity: SHA-256 hex of tarball bytes (`sha256` field on artifact response)
+- v0 storage: local FS at `NABU_ARTIFACT_DIR` or `.nabu-artifacts/npm/{name}/{version}/` (gitignored); ponytail upgrade path = S3-compatible bucket
+- Extract: `tar` with `strip: 1`, path-traversal filter, file list from post-extract directory walk
+- Self-check: `pnpm --filter @nabuos/npm-artifact self-check` (SRI + tamper rejection, no network)
+- Live smoke: `pnpm smoke:artifact` (guard on `:3001`; `axios@1.6.0`, `lodash@4.17.21`)
+- Verified live: `axios@1.6.0` → 80 files, 3 deps, `main=index.js`; `lodash@4.17.21` → 1054 files, `main=lodash.js`
+- No LLM in artifact or inventory paths
+
+### deps.dev + OSV notes (learned, Epic 1.4)
+
+- deps.dev: `GET https://api.deps.dev/v3/systems/npm/packages/{name}/versions/{version}:dependencies`
+- Scoped names: percent-encode (`@babel/core` → `%40babel%2Fcore`)
+- Graph: `nodes[]` with `versionKey`, `relation` (`SELF`/`DIRECT`/`INDIRECT`); `edges[]` with `fromNode`, `toNode`, `requirement`
+- Cache: `.nabu-artifacts/cache/deps-dev/npm/{name}/{version}.json`
+- OSV batch: `POST https://api.osv.dev/v1/querybatch` with `{ queries: [{ package: { name, ecosystem: "npm", version } }] }`
+- OSV details: `GET https://api.osv.dev/v1/vulns/{id}`; cache under `.nabu-artifacts/cache/osv/vulns/`
+- Missing deps.dev graph → `degraded: true`, audit continues (does not crash)
+- Verified live: `axios@1.6.0` → 26 graph nodes, 41 unique OSV refs across dependency tree
+
+### BTL Guard triage notes (learned, Epic 1.5)
+
+- Package: `@nabuos/guard-triage` — stable system prompt, evidence-only JSON input, `guard-triage-v0.1` schema
+- Model default: `btl-2` (`BTL_TRIAGE_MODEL` override); omit `temperature` (see BTL notes)
+- Invalid JSON → one repair retry; persists `x-btl-*` headers on `triage.btl_runtime`
+- Guard start for triage: `node --env-file=../../.env dist/index.js` (same as mind)
+- Verified live: `axios@1.6.0` triage → `risk_score=85`, `verdict_recommendation=block`, 7 findings, model `btl-2`
+
 ### Packages shipped
 
 | Package | Role |
@@ -120,7 +172,10 @@ Stack: **pnpm workspaces**, **TypeScript (ESM)**, **Hono** + `@hono/node-server`
 | `@nabuos/service-kit` | Shared `/healthz` and `/readyz` |
 | `@nabuos/btl-runtime` | Live BTL HTTP client (`ping`, `chatCompletion`, header parsing) |
 | `@nabuos/npm-registry` | Live npm registry client (`getPackument`, `getVersion`) |
-| `@nabuos/npm-artifact` | Tarball download, SRI/shasum verify, local artifact store, extract, inventory |
+| `@nabuos/npm-artifact` | Live tarball download, SRI/shasum verify, local artifact cache, extract, `buildInventory`; dep: `tar` |
+| `@nabuos/deps-dev` | Live deps.dev `GetDependencies` client with local graph cache |
+| `@nabuos/osv` | OSV `querybatch` + vuln detail fetch with local cache |
+| `@nabuos/guard-triage` | BTL triage prompt + `enrichNpmPackage` orchestration |
 | `@nabuos/env-secrets` | v0 vault hack: `secret://env/gateway-api-key` → `GATEWAY_API_KEY` |
 
 ### Definition of Done — partial compliance
@@ -129,6 +184,9 @@ Sprint 0 stories satisfied where marked **Done**, with these gaps still open for
 
 - OpenTelemetry spans and `trace_id` in logs (Epic 0.3)
 - Postgres metadata snapshot storage (Epic 1.1 acceptance)
+- S3-compatible artifact object storage (Epic 1.2 v0 uses local FS only)
+- OSV/deps.dev caches are local FS only (Epic 1.4 v0; Postgres later)
+- Public audit job API + verdict persistence (Epic 1.6)
 - CI pipeline and deployment manifests (`infra/` placeholder)
 - RetainDB and Infisical acceptance criteria explicitly waived until keys are provisioned
 
@@ -1326,7 +1384,7 @@ Goal:
 
 - Public API can audit a real npm package version with real metadata, real tarball hash verification, OSV, deps.dev, inventory, and BTL triage.
 
-**Sprint 1 progress:** Epic 1.1–1.3 done (metadata, artifact, inventory); Epic 1.4–1.6 not started.
+**Sprint 1 progress:** Epics 1.1–1.5 done; Epic 1.6 (public audit API) not started.
 
 ### Epic 1.1: npm Metadata Adapter — **DONE** (routes + client; DB snapshot pending)
 
@@ -1399,48 +1457,52 @@ Acceptance:
 - ✅ Inventory for real npm package includes real scripts/deps/files (`pnpm smoke:artifact`)
 - ✅ No LLM involved in inventory
 
-### Epic 1.4: deps.dev and OSV
+### Epic 1.4: deps.dev and OSV — **DONE**
 
 Stories:
 
-1. Call deps.dev `GetDependencies`.
-2. Build dependency graph table.
-3. Call OSV `querybatch` for root and dependencies.
-4. Fetch full OSV vulnerability details for cache misses.
+1. ✅ Call deps.dev `GetDependencies`.
+   - Package: `@nabuos/deps-dev`
+   - Route: `GET /v1/guard/npm/:name/:version/dependencies`
+
+2. ✅ Build dependency graph table.
+   - Returns `nodes`, `edges`, `relation` per deps.dev API
+
+3. ✅ Call OSV `querybatch` for root and dependencies.
+   - Package: `@nabuos/osv`
+   - Route: `GET /v1/guard/npm/:name/:version/vulnerabilities`
+
+4. ✅ Fetch full OSV vulnerability details for cache misses.
+   - Local cache: `.nabu-artifacts/cache/osv/vulns/{id}.json`
 
 Acceptance:
 
-- Real dependency graph returned for a known npm package version.
-- OSV batch request sent with exact versions.
-- Results cached.
-- Missing deps.dev graph does not crash audit; marks phase as degraded.
+- ✅ Real dependency graph for `axios@1.6.0` (`pnpm smoke:enrichment`)
+- ✅ OSV batch with exact versions from deps.dev graph
+- ✅ Results cached (deps.dev graph + OSV vuln details)
+- ✅ Missing deps.dev graph marks phase `degraded` without crash
 
-### Epic 1.5: BTL Runtime Triage
+### Epic 1.5: BTL Runtime Triage — **DONE**
 
 Stories:
 
-1. Create stable triage prompt.
-2. Input only:
-   - metadata
-   - inventory
-   - scripts
-   - OSV summary
-   - Semgrep placeholder omitted until Sprint 3
-3. Require JSON schema:
-   - `risk_score`
-   - `verdict_recommendation`
-   - `findings`
-   - `uncertainties`
-   - `required_next_phase`
+1. ✅ Create stable triage prompt.
+   - `@nabuos/guard-triage` system prompt; evidence-only rules
+
+2. ✅ Input only: metadata, inventory, scripts, OSV summary (no Semgrep until Sprint 3).
+
+3. ✅ Require JSON schema: `risk_score`, `verdict_recommendation`, `findings`, `uncertainties`, `required_next_phase`.
 
 Acceptance:
 
-- Calls BTL Runtime.
-- Persists BTL request ID and cost headers.
-- Rejects invalid JSON and retries once with repair prompt.
-- Findings cite concrete metadata fields or file paths.
+- ✅ Calls BTL Runtime (`pnpm smoke:triage` / live `axios@1.6.0`)
+- ✅ Persists BTL request ID and cost headers on `triage.btl_runtime`
+- ✅ Rejects invalid JSON and retries once with repair prompt
+- ✅ Findings must cite concrete metadata fields or file paths (prompt-enforced)
 
-### Epic 1.6: Public Guard API
+### Epic 1.6: Public Guard API — **NOT STARTED**
+
+Unifies the per-route fast audit pipeline above into job-based API:
 
 Stories:
 
@@ -2120,7 +2182,7 @@ Mitigation:
 
 If starting today:
 
-1. ~~Build `guard-service` npm fast audit.~~ **In progress** — Epics 1.1–1.3 done; continue 1.4 OSV/deps.dev.
+1. ~~Build `guard-service` npm fast audit.~~ **In progress** — Epics 1.1–1.5 done; continue 1.6 public audit API.
 2. Add OSV/deps.dev.
 3. Add BTL triage.
 4. Add PyPI adapter.
@@ -2131,7 +2193,7 @@ If starting today:
 9. Add Pulse package watch.
 10. Add gVisor sandbox.
 
-**Completed so far (2026-07-04):** Sprint 0 foundation, BTL client, env-based vault hack, npm metadata adapter + guard routes, artifact download/integrity + inventory.
+**Completed so far (2026-07-04):** Sprint 0 foundation, BTL client, env-based vault hack, npm metadata + artifact + inventory, deps.dev/OSV enrichment, BTL guard triage.
 
 Reason:
 
