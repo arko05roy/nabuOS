@@ -1,5 +1,5 @@
 {
-  "name": "@nabuos/vault",
+  "name": "@nabuos/pulse",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -11,7 +11,8 @@
   },
   "dependencies": {
     "@hono/node-server": "^1.14.4",
-    "@nabuos/env-secrets": "workspace:*",
+    "@nabuos/npm-registry": "workspace:*",
+    "@nabuos/pypi-registry": "workspace:*",
     "@nabuos/service-kit": "workspace:*",
     "@nabuos/types": "workspace:*",
     "hono": "^4.7.11"

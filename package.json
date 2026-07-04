@@ -21,7 +21,10 @@
     "smoke:semgrep": "node scripts/smoke-semgrep.mjs",
     "smoke:pypi-deep-audit": "node --env-file=.env scripts/smoke-pypi-deep-audit.mjs",
     "smoke:deep-audit-mind": "node --env-file=.env scripts/smoke-deep-audit-mind.mjs",
-    "smoke:mind": "node --env-file=.env scripts/smoke-mind.mjs"
+    "smoke:mind": "node --env-file=.env scripts/smoke-mind.mjs",
+    "smoke:vault": "node --env-file=.env scripts/smoke-vault.mjs",
+    "smoke:run": "node --env-file=.env scripts/smoke-run.mjs",
+    "smoke:pulse": "node --env-file=.env scripts/smoke-pulse.mjs"
   },
   "engines": {
     "node": ">=20"

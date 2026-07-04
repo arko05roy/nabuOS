@@ -1,0 +1,60 @@
+@import 'tailwindcss';
+
+@theme {
+  --font-display: 'Syne', system-ui, sans-serif;
+  --font-body: 'DM Sans', system-ui, sans-serif;
+  --color-void: #0a0c0f;
+  --color-surface: #12161d;
+  --color-panel: #181e28;
+  --color-line: #2a3340;
+  --color-text: #e7eaef;
+  --color-muted: #8b939e;
+  --color-pulse: #f0a020;
+  --color-safe: #5fa870;
+  --color-danger: #e06352;
+  --color-warn: #d4a843;
+}
+
+@layer base {
+  html {
+    font-family: var(--font-body);
+    background: var(--color-void);
+    color: var(--color-text);
+  }
+
+  body {
+    min-height: 100vh;
+    background:
+      radial-gradient(ellipse 80% 50% at 50% -20%, rgba(240, 160, 32, 0.08), transparent),
+      var(--color-void);
+  }
+}
+
+@keyframes scan {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.pulse-scan::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(240, 160, 32, 0.15),
+    transparent
+  );
+  animation: scan 2.2s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pulse-scan::after {
+    animation: none;
+  }
+}

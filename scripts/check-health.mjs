@@ -7,6 +7,7 @@ const services = [
   { name: 'vault', port: 3003 },
   { name: 'run', port: 3004 },
   { name: 'sandbox-worker', port: 3005 },
+  { name: 'pulse', port: 3006 },
 ];
 
 let failed = false;

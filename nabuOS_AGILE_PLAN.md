@@ -29,7 +29,7 @@ See `docs/scope.md`.
 
 ```
 apps/web
-services/api-gateway, guard, mind, vault, run, sandbox-worker
+services/api-gateway, guard, mind, vault, run, sandbox-worker, pulse
 packages/types, sdk, service-kit, btl-runtime, npm-registry, npm-artifact, pypi-registry, pypi-artifact, deps-dev, osv, guard-triage, semgrep, env-secrets
 infra/, docs/
 ```
@@ -46,6 +46,7 @@ Stack: **pnpm workspaces**, **TypeScript (ESM)**, **Hono** + `@hono/node-server`
 | vault | 3003 | process + env secret handles configured |
 | run | 3004 | process |
 | sandbox-worker | 3005 | process |
+| pulse | 3006 | process + guard + mind reachability |
 
 ### Scripts
 
@@ -69,6 +70,9 @@ Stack: **pnpm workspaces**, **TypeScript (ESM)**, **Hono** + `@hono/node-server`
 | `pnpm smoke:pypi-deep-audit` | Live PyPI deep audit job with Semgrep (`requests@2.31.0`; needs `GATEWAY_API_KEY`) |
 | `pnpm smoke:deep-audit-mind` | Live deep audit auto-Mind incident (`node-ipc@9.1.1`; guard `:3001`, mind `:3002`, `GATEWAY_API_KEY`) |
 | `pnpm smoke:mind` | Live Mind API over Guard audit (`axios@1.6.0`; mind `:3002`, guard `:3001`) |
+| `pnpm smoke:vault` | Live Vault handles + env resolve; stored secrets when `VAULT_ENCRYPTION_KEY` set |
+| `pnpm smoke:run` | Live Run deploy + BTL job (`guard` + `vault` + `run`; real npm skill + env BTL secret) |
+| `pnpm smoke:pulse` | Live Pulse watchlist + Guard drift check (`chalk` baseline; guard + mind + pulse; `GATEWAY_API_KEY`) |
 
 ### Sprint 0 status
 
@@ -183,9 +187,22 @@ Stack: **pnpm workspaces**, **TypeScript (ESM)**, **Hono** + `@hono/node-server`
 
 - `GET /healthz`, `GET /readyz` — checks `secret://env/gateway-api-key` is configured
 - `GET /v1/vault/handles` — lists opaque handles (no values)
-- `GET /v1/vault/resolve?handle=...` — returns `{ configured: true }` only; never raw secret
+- `GET /v1/vault/secrets` — list secret refs (metadata only)
+- `GET /v1/vault/secrets/:secret_id` — secret ref by id
+- `POST /v1/vault/secrets` — store secret (AES-256-GCM FS when `VAULT_ENCRYPTION_KEY` set); value never returned
+- `GET /v1/vault/resolve?handle=...` — public probe `{ configured: true }` only
+- `POST /v1/vault/resolve` — internal resolve for Run (`agent_id`, `tool`); policy enforced; audit logged
+- `GET /v1/vault/access-events` — secret access audit log (no values)
 
-**Other services** (api-gateway, run, sandbox-worker): health endpoints only.
+**Run** (`services/run`, port 3004):
+
+- `GET /healthz`, `GET /readyz` — probes guard + vault reachability
+- `POST /v1/run/agents` — Guard-gated deploy (`skills`, `secrets`, `policy`); async `deploying` → `running|failed`
+- `GET /v1/run/agents/:deployment_id` — poll deployment (`guard_checks`, `secret_handles_bound`)
+- `POST /v1/run/agents/:agent_id/jobs` — enqueue live BTL job (Vault-resolved key; summary only in response)
+- `GET /v1/run/jobs/:job_id` — poll job result
+
+**Other services** (api-gateway, sandbox-worker): health endpoints only.
 
 ### BTL Runtime integration notes (learned)
 
@@ -2270,9 +2287,9 @@ If starting today:
 4. ~~Add PyPI adapter.~~ **Done** — Sprint 2 complete (Epics 2.1–2.4).
 5. ~~Add Mind API over Guard reports.~~ **Done** — `POST/GET /v1/mind/runs`, `pnpm smoke:mind`
 6. ~~Add Semgrep deep phase.~~ **Done** — `@nabuos/semgrep`, deep audit jobs npm+PyPI, `pnpm smoke:deep-audit`, `pnpm smoke:pypi-deep-audit`
-7. Add Vault (Infisical provider when provisioned; env-secrets covers v0).
-8. Add Run.
-9. Add Pulse package watch.
+7. ~~Add Vault (Infisical provider when provisioned; env-secrets covers v0).~~ **Done (v0)** — policy + audit + FS secrets; Infisical when `INFISICAL_*` provisioned
+8. ~~Add Run.~~ **Done (v0)** — Guard-gated deploy, Vault binding, live BTL jobs; `pnpm smoke:run`
+9. ~~Add Pulse package watch.~~ **Done (v0)** — `services/pulse` + `apps/web`; `pnpm smoke:pulse`
 10. Add gVisor sandbox.
 
 **Completed so far (2026-07-04):** Sprint 0 foundation, BTL client, env-based vault hack, npm fast audit (Sprint 1), public audit job API (Epic 1.6), PyPI fast audit per-route pipeline (Sprint 2 Epics 2.1–2.4).

@@ -211,6 +211,72 @@ export interface SecretPolicy {
   expires_at?: string;
 }
 
+/** POST /v1/vault/secrets request body. Value is stored once; never returned on API. */
+export interface CreateSecretRequest {
+  project_id: string;
+  name: string;
+  value: string;
+  policy?: SecretPolicy;
+}
+
+export type SecretAccessOutcome = 'allowed' | 'denied' | 'not_found' | 'expired';
+
+/** Vault secret read audit event — no secret values. */
+export interface SecretAccessEvent {
+  event_id: string;
+  handle: string;
+  agent_id?: string;
+  tool?: string;
+  outcome: SecretAccessOutcome;
+  reason?: string;
+  at: string;
+}
+
+export interface GuardSkillCheck {
+  ecosystem: Ecosystem;
+  name: string;
+  version: string;
+  audit_id?: string;
+  verdict: Verdict;
+  score: number;
+  passed: boolean;
+  reason?: string;
+}
+
+/** POST /v1/run/agents request body. */
+export interface CreateAgentDeploymentRequest {
+  name: string;
+  template: string;
+  skills: AgentSkill[];
+  secrets: string[];
+  policy: AgentPolicy;
+}
+
+export type AgentJobStatus = 'pending' | 'running' | 'completed' | 'failed';
+
+/** Agent job from POST /v1/run/agents/:agent_id/jobs. */
+export interface AgentJob {
+  job_id: string;
+  agent_id: string;
+  deployment_id: string;
+  status: AgentJobStatus;
+  goal: string;
+  result_summary?: string;
+  btl_request_id?: string;
+  btl_charge?: number;
+  error?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Persisted agent record. */
+export interface Agent {
+  agent_id: string;
+  name: string;
+  template: string;
+  created_at: string;
+}
+
 /** Opaque secret handle; raw values never appear on public API after creation. */
 export interface SecretRef {
   secret_id: string;
@@ -220,6 +286,54 @@ export interface SecretRef {
   policy: SecretPolicy;
   created_at: string;
   updated_at: string;
+}
+
+export interface PulseWatchPackage {
+  ecosystem: Ecosystem;
+  name: string;
+  baseline_version?: string;
+  last_seen_version?: string;
+  last_audit_id?: string;
+  last_verdict?: Verdict;
+  last_score?: number;
+  last_checked_at?: string;
+}
+
+/** POST /v1/pulse/watchlists request body. */
+export interface CreatePulseWatchlistRequest {
+  name: string;
+  webhook_url?: string;
+  packages: PulseWatchPackage[];
+}
+
+export interface PulseWatchlist {
+  watchlist_id: string;
+  name: string;
+  webhook_url?: string;
+  packages: PulseWatchPackage[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PulseAlert {
+  alert_id: string;
+  watchlist_id: string;
+  ecosystem: Ecosystem;
+  name: string;
+  previous_version?: string;
+  new_version: string;
+  previous_audit_id?: string;
+  new_audit_id: string;
+  previous_verdict?: Verdict;
+  new_verdict: Verdict;
+  previous_score?: number;
+  new_score: number;
+  risk_increased: boolean;
+  mind_run_id?: string;
+  mind_summary?: string;
+  webhook_delivered: boolean;
+  webhook_status?: number;
+  created_at: string;
 }
 
 export interface AgentSkill {
@@ -250,6 +364,9 @@ export interface AgentDeployment {
   secrets: string[];
   policy: AgentPolicy;
   status: AgentDeploymentStatus;
+  guard_checks?: GuardSkillCheck[];
+  secret_handles_bound?: string[];
+  failure_reason?: string;
   created_at: string;
   updated_at: string;
 }
