@@ -1,6 +1,7 @@
 import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
+import { createLogger, withTelemetry } from '@nabuos/otel';
 import { createServiceApp } from '@nabuos/service-kit';
 import type { CreatePulseWatchlistRequest, PulseWatchlist } from '@nabuos/types';
 import { pulseDependenciesReady, runWatchlistCheck } from './pulse-engine.js';
@@ -14,6 +15,8 @@ import {
 
 const port = Number(process.env.PORT ?? 3006);
 
+const log = createLogger('pulse');
+
 const health = createServiceApp('pulse', async () => {
   const { ready, checks } = await pulseDependenciesReady();
   return {
@@ -23,7 +26,7 @@ const health = createServiceApp('pulse', async () => {
   };
 });
 
-const app = new Hono();
+const app = withTelemetry(new Hono(), 'pulse');
 app.use(
   '*',
   cors({
@@ -125,7 +128,7 @@ app.post('/v1/pulse/watchlists/:id/check', async (c) => {
 });
 
 const server = serve({ fetch: app.fetch, port });
-console.log(`pulse listening on :${port}`);
+log.info(`pulse listening on :${port}`);
 
 process.on('SIGINT', () => {
   server.close();
@@ -134,7 +137,7 @@ process.on('SIGINT', () => {
 process.on('SIGTERM', () => {
   server.close((err) => {
     if (err) {
-      console.error(err);
+      log.error('shutdown failed', { error: err instanceof Error ? err.message : String(err) });
       process.exit(1);
     }
     process.exit(0);

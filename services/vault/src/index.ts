@@ -1,5 +1,6 @@
 import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
+import { createLogger, withTelemetry } from '@nabuos/otel';
 import { createServiceApp } from '@nabuos/service-kit';
 import type { CreateSecretRequest } from '@nabuos/types';
 import {
@@ -19,6 +20,8 @@ const port = Number(process.env.PORT ?? 3003);
 const fsProvider = createFsSecretProvider(countAllowedReads);
 const providers = createSecretProviders(fsProvider);
 
+const log = createLogger('vault');
+
 const health = createServiceApp('vault', () => {
   const fs = fsVaultReady();
   const envKey = resolveEnvSecret('secret://env/gateway-api-key');
@@ -35,7 +38,7 @@ const health = createServiceApp('vault', () => {
   };
 });
 
-const app = new Hono();
+const app = withTelemetry(new Hono(), 'vault');
 app.route('/', health);
 
 function parseCreateSecret(body: unknown): CreateSecretRequest | { error: string } {
@@ -173,7 +176,7 @@ app.get('/v1/vault/access-events', async (c) => {
 });
 
 const server = serve({ fetch: app.fetch, port });
-console.log(`vault listening on :${port}`);
+log.info(`vault listening on :${port}`);
 
 process.on('SIGINT', () => {
   server.close();
@@ -182,7 +185,7 @@ process.on('SIGINT', () => {
 process.on('SIGTERM', () => {
   server.close((err) => {
     if (err) {
-      console.error(err);
+      log.error('shutdown failed', { error: err instanceof Error ? err.message : String(err) });
       process.exit(1);
     }
     process.exit(0);

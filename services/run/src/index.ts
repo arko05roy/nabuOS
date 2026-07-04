@@ -1,5 +1,6 @@
 import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
+import { createLogger, withTelemetry } from '@nabuos/otel';
 import { createServiceApp } from '@nabuos/service-kit';
 import type { AgentDeployment, AgentJob, CreateAgentDeploymentRequest } from '@nabuos/types';
 import {
@@ -18,6 +19,8 @@ import { runAgentJob, runDependenciesReady, runDeployEngine } from './deploy-eng
 
 const port = Number(process.env.PORT ?? 3004);
 
+const log = createLogger('run');
+
 const health = createServiceApp('run', async () => {
   const { ready, checks } = await runDependenciesReady();
   return {
@@ -27,7 +30,7 @@ const health = createServiceApp('run', async () => {
   };
 });
 
-const app = new Hono();
+const app = withTelemetry(new Hono(), 'run');
 app.route('/', health);
 
 const inflightDeployments = new Set<string>();
@@ -218,7 +221,7 @@ app.get('/v1/run/jobs/:job_id', async (c) => {
 });
 
 const server = serve({ fetch: app.fetch, port });
-console.log(`run listening on :${port}`);
+log.info(`run listening on :${port}`);
 
 process.on('SIGINT', () => {
   server.close();
@@ -227,7 +230,7 @@ process.on('SIGINT', () => {
 process.on('SIGTERM', () => {
   server.close((err) => {
     if (err) {
-      console.error(err);
+      log.error('shutdown failed', { error: err instanceof Error ? err.message : String(err) });
       process.exit(1);
     }
     process.exit(0);

@@ -1,6 +1,7 @@
 import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
 import { btlRuntimeFromEnv } from '@nabuos/btl-runtime';
+import { createLogger, withTelemetry } from '@nabuos/otel';
 import { createServiceApp } from '@nabuos/service-kit';
 import type { CreateMindRunRequest, MindMode, MindRun } from '@nabuos/types';
 import { runMindEngine } from './mind-engine.js';
@@ -13,6 +14,8 @@ import {
 } from './run-store.js';
 
 const port = Number(process.env.PORT ?? 3002);
+
+const log = createLogger('mind');
 
 const health = createServiceApp('mind', async () => {
   const checks: Record<string, 'ok' | 'fail' | 'unknown'> = { process: 'ok' };
@@ -40,7 +43,7 @@ const health = createServiceApp('mind', async () => {
   }
 });
 
-const app = new Hono();
+const app = withTelemetry(new Hono(), 'mind');
 app.route('/', health);
 
 const inflight = new Set<string>();
@@ -131,7 +134,7 @@ app.get('/v1/mind/runs/:id', async (c) => {
 });
 
 const server = serve({ fetch: app.fetch, port });
-console.log(`mind listening on :${port}`);
+log.info(`mind listening on :${port}`);
 
 process.on('SIGINT', () => {
   server.close();
@@ -140,7 +143,7 @@ process.on('SIGINT', () => {
 process.on('SIGTERM', () => {
   server.close((err) => {
     if (err) {
-      console.error(err);
+      log.error('shutdown failed', { error: err instanceof Error ? err.message : String(err) });
       process.exit(1);
     }
     process.exit(0);

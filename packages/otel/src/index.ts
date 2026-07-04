@@ -1,12 +1,12 @@
+import type { Span } from '@opentelemetry/api';
 import {
   context,
   propagation,
   SpanStatusCode,
   trace,
-  type Span,
 } from '@opentelemetry/api';
 import type { Hono } from 'hono';
-import { createMiddleware } from 'hono/factory';
+import type { MiddlewareHandler } from 'hono';
 
 export function getTraceId(): string | undefined {
   return trace.getActiveSpan()?.spanContext().traceId;
@@ -19,7 +19,7 @@ export function getSpanId(): string | undefined {
 /** Inject W3C trace context into outbound fetch headers. */
 export function injectTraceHeaders(headers: Headers): void {
   propagation.inject(context.active(), headers, {
-    set(carrier, key, value) {
+    set(carrier: Headers, key: string, value: string) {
       carrier.set(key, value);
     },
   });
@@ -39,14 +39,14 @@ function finishSpan(span: Span, status: number, err?: unknown) {
 }
 
 /** HTTP span per request; sets `x-trace-id` on responses. */
-export function otelMiddleware(service?: string) {
+export function otelMiddleware(service?: string): MiddlewareHandler {
   const tracer = trace.getTracer(service ?? 'nabuos');
 
-  return createMiddleware(async (c, next) => {
+  return async (c, next) => {
     const parent = propagation.extract(context.active(), c.req.raw.headers);
     const route = `${c.req.method} ${c.req.path}`;
 
-    return tracer.startActiveSpan(route, {}, parent, async (span) => {
+    return tracer.startActiveSpan(route, {}, parent, async (span: Span) => {
       if (service) span.setAttribute('nabu.service', service);
 
       const traceId = span.spanContext().traceId;
@@ -60,7 +60,7 @@ export function otelMiddleware(service?: string) {
         throw err;
       }
     });
-  });
+  };
 }
 
 export function withTelemetry(app: Hono, service: string): Hono {

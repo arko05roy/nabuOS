@@ -1,9 +1,20 @@
 import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentations-node';
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
-import { resourceFromAttributes } from '@opentelemetry/resources';
+import { registerInstrumentations } from '@opentelemetry/instrumentation';
+import { Resource } from '@opentelemetry/resources';
 import { NodeSDK } from '@opentelemetry/sdk-node';
-import { ConsoleSpanExporter } from '@opentelemetry/sdk-trace-node';
+import { BasicTracerProvider, ConsoleSpanExporter } from '@opentelemetry/sdk-trace-node';
 import { ATTR_SERVICE_NAME } from '@opentelemetry/semantic-conventions';
+
+const resource = new Resource({
+  [ATTR_SERVICE_NAME]: process.env.OTEL_SERVICE_NAME ?? 'nabuos',
+});
+
+const instrumentations = [
+  getNodeAutoInstrumentations({
+    '@opentelemetry/instrumentation-fs': { requireParentSpan: true },
+  }),
+];
 
 function createTraceExporter() {
   const kind = process.env.OTEL_TRACES_EXPORTER ?? 'console';
@@ -12,20 +23,26 @@ function createTraceExporter() {
   return new ConsoleSpanExporter();
 }
 
-const sdk = new NodeSDK({
-  resource: resourceFromAttributes({
-    [ATTR_SERVICE_NAME]: process.env.OTEL_SERVICE_NAME ?? 'nabuos',
-  }),
-  traceExporter: createTraceExporter(),
-  instrumentations: [
-    getNodeAutoInstrumentations({
-      '@opentelemetry/instrumentation-fs': { requireParentSpan: true },
-    }),
-  ],
-});
+const exporterKind = process.env.OTEL_TRACES_EXPORTER ?? 'console';
 
-sdk.start();
+const shutdown =
+  exporterKind === 'none'
+    ? (() => {
+        const provider = new BasicTracerProvider({ resource });
+        provider.register();
+        registerInstrumentations({ instrumentations });
+        return () => provider.shutdown();
+      })()
+    : (() => {
+        const sdk = new NodeSDK({
+          resource,
+          traceExporter: createTraceExporter(),
+          instrumentations,
+        });
+        sdk.start();
+        return () => sdk.shutdown();
+      })();
 
 process.on('SIGTERM', () => {
-  void sdk.shutdown().finally(() => process.exit(0));
+  void shutdown().finally(() => process.exit(0));
 });

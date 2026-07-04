@@ -53,6 +53,7 @@ async function proxyTo(c: Context, base: string) {
     headers.set(key, value);
   });
   headers.set('x-nabu-request-id', requestId);
+  injectTraceHeaders(headers);
   headers.set('x-forwarded-host', c.req.header('host') ?? 'localhost');
   headers.set('x-forwarded-proto', incoming.protocol.replace(':', ''));
 
@@ -79,8 +80,9 @@ async function proxyTo(c: Context, base: string) {
   return new Response(res.body, { status: res.status, headers: out });
 }
 
+const log = createLogger('api-gateway');
 const health = createServiceApp('api-gateway', gatewayReadiness);
-const app = new Hono();
+const app = withTelemetry(new Hono(), 'api-gateway');
 
 app.route('/', health);
 
@@ -96,12 +98,12 @@ app.all('/v1/*', (c) =>
 );
 
 app.onError((err, c) => {
-  console.error('api-gateway error:', err);
+  log.error('api-gateway error', { error: err instanceof Error ? err.message : String(err) });
   return c.json({ error: 'internal_error', message: 'unexpected gateway error' }, 500);
 });
 
 const server = serve({ fetch: app.fetch, port });
-console.log(`api-gateway listening on :${port}`);
+log.info(`api-gateway listening on :${port}`);
 
 process.on('SIGINT', () => {
   server.close();
@@ -110,7 +112,7 @@ process.on('SIGINT', () => {
 process.on('SIGTERM', () => {
   server.close((err) => {
     if (err) {
-      console.error(err);
+      log.error('shutdown failed', { error: err instanceof Error ? err.message : String(err) });
       process.exit(1);
     }
     process.exit(0);

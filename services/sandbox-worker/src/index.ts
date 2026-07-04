@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { serve } from '@hono/node-server';
+import { createLogger, withTelemetry } from '@nabuos/otel';
 import { createServiceApp } from '@nabuos/service-kit';
 import type { CreateSandboxRunRequest, SandboxImage, SandboxRun } from '@nabuos/types';
 import {
@@ -17,8 +18,9 @@ import {
 } from '@nabuos/sandbox';
 
 const port = Number(process.env.PORT ?? 3005);
+const log = createLogger('sandbox-worker');
 const health = createServiceApp('sandbox-worker', probeSandboxRuntime);
-const app = new Hono();
+const app = withTelemetry(new Hono(), 'sandbox-worker');
 
 app.route('/', health);
 
@@ -139,7 +141,10 @@ app.post('/v1/sandbox/runs', async (c) => {
     memory_mb: parsed.memory_mb,
     cpus: parsed.cpus,
   }).catch((err) => {
-    console.error(`sandbox run ${runId} failed:`, err instanceof Error ? err.message : err);
+    log.error('sandbox run failed', {
+      run_id: runId,
+      error: err instanceof Error ? err.message : String(err),
+    });
   });
 
   return c.json(pending, 202);
@@ -264,12 +269,12 @@ app.onError((err, c) => {
           : 500;
     return c.json({ error: err.code, message: err.message }, status);
   }
-  console.error(err);
+  log.error('sandbox-worker error', { error: err instanceof Error ? err.message : String(err) });
   return c.json({ error: 'internal_error', message: 'unexpected error' }, 500);
 });
 
 const server = serve({ fetch: app.fetch, port });
-console.log(`sandbox-worker listening on :${port}`);
+log.info(`sandbox-worker listening on :${port}`);
 
 process.on('SIGINT', () => {
   server.close();
@@ -278,7 +283,7 @@ process.on('SIGINT', () => {
 process.on('SIGTERM', () => {
   server.close((err) => {
     if (err) {
-      console.error(err);
+      log.error('shutdown failed', { error: err instanceof Error ? err.message : String(err) });
       process.exit(1);
     }
     process.exit(0);

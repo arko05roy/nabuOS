@@ -28,7 +28,8 @@
     "smoke:sandbox": "node scripts/smoke-sandbox.mjs",
     "smoke:sandbox-audit": "node --env-file=.env scripts/smoke-sandbox-audit.mjs",
     "smoke:pypi-sandbox-audit": "node --env-file=.env scripts/smoke-pypi-sandbox-audit.mjs",
-    "smoke:gateway": "node scripts/smoke-gateway.mjs"
+    "smoke:gateway": "node scripts/smoke-gateway.mjs",
+    "smoke:otel": "node scripts/smoke-otel.mjs"
   },
   "engines": {
     "node": ">=20"

@@ -5,13 +5,14 @@
   "type": "module",
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "dev": "tsx watch src/index.ts",
-    "start": "node --env-file=../../.env dist/index.js",
+    "dev": "OTEL_SERVICE_NAME=run tsx watch --import @nabuos/otel/instrument src/index.ts",
+    "start": "OTEL_SERVICE_NAME=run node --import @nabuos/otel/instrument --env-file=../../.env dist/index.js",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "@hono/node-server": "^1.14.4",
     "@nabuos/btl-runtime": "workspace:*",
+    "@nabuos/otel": "workspace:*",
     "@nabuos/service-kit": "workspace:*",
     "@nabuos/types": "workspace:*",
     "hono": "^4.7.11"
