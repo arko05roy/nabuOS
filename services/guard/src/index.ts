@@ -16,7 +16,9 @@ import {
   enrichPypiPackage,
   GuardTriageError,
   runGuardTriage,
+  runPypiGuardTriage,
 } from '@nabuos/guard-triage';
+import { computeDeepVerdict, scanSemgrep, SemgrepError } from '@nabuos/semgrep';
 import {
   fetchPypiArtifact,
   fetchPypiInventory,
@@ -39,6 +41,7 @@ import {
   saveAudit,
 } from './audit-store.js';
 import { runNpmFastAudit } from './npm-fast-audit.js';
+import { runPypiFastAudit } from './pypi-fast-audit.js';
 
 const port = Number(process.env.PORT ?? 3001);
 const npm = createNpmRegistryClient();
@@ -102,10 +105,19 @@ function parseCreateAudit(body: unknown): CreateAuditRequest | { error: string }
   return { ecosystem, name: name.trim(), version: version.trim(), depth };
 }
 
-function scheduleNpmFastAudit(job: AuditJob): void {
+function routeSemgrepId(ecosystem: string, name: string, version: string): string {
+  const safe = name.replace(/^@/, '').replace(/\//g, '--');
+  return `route_${ecosystem}_${safe}_${version}`;
+}
+
+function scheduleFastAudit(job: AuditJob): void {
   const key = packageAuditKey(job.ecosystem, job.name, job.version, job.depth);
   inflight.set(key, job.audit_id);
-  void runNpmFastAudit(job, { npm, depsDev, osv }).finally(() => {
+  const runner =
+    job.ecosystem === 'npm'
+      ? runNpmFastAudit(job, { npm, depsDev, osv })
+      : runPypiFastAudit(job, { pypi, depsDev, osv });
+  void runner.finally(() => {
     inflight.delete(key);
   });
 }
@@ -124,17 +136,11 @@ app.post('/v1/guard/audits', async (c) => {
     return c.json({ error: 'invalid_request', message: parsed.error }, 400);
   }
 
-  if (parsed.ecosystem !== 'npm') {
-    return c.json(
-      { error: 'unsupported_ecosystem', message: 'audit job API supports npm only for now' },
-      400,
-    );
-  }
   if (parsed.depth !== 'fast' && parsed.depth !== 'deep') {
     return c.json(
       {
         error: 'unsupported_depth',
-        message: 'sandbox audits ship in Sprint 4; fast and deep supported for npm',
+        message: 'sandbox audits ship in Sprint 4; fast and deep supported for npm and pypi',
       },
       400,
     );
@@ -170,7 +176,7 @@ app.post('/v1/guard/audits', async (c) => {
 
   if (idempotencyKey) await bindIdempotencyKey(idempotencyKey, job.audit_id);
   await saveAudit(job);
-  scheduleNpmFastAudit(job);
+  scheduleFastAudit(job);
 
   return c.json(job, 202);
 });
@@ -370,6 +376,77 @@ app.get('/v1/guard/pypi/:name/:version/vulnerabilities', async (c) => {
   }
 });
 
+/** BTL Runtime triage over PyPI metadata + inventory + OSV */
+app.get('/v1/guard/pypi/:name/:version/triage', async (c) => {
+  const name = decodeURIComponent(c.req.param('name'));
+  const version = c.req.param('version');
+  try {
+    const doc = await pypi.getVersion(name, version);
+    const { inventory } = await fetchPypiInventory(name, version, doc.urls);
+    const enrichment = await enrichPypiPackage(name, version, depsDev, osv);
+
+    const triage = await runPypiGuardTriage({
+      name,
+      version,
+      yanked: doc.all_files_yanked,
+      inventory,
+      dependency_graph: enrichment.dependency_graph,
+      vulnerabilities: enrichment.vulnerabilities,
+    });
+
+    return c.json({
+      name,
+      version,
+      phases: enrichment.phases,
+      triage,
+    });
+  } catch (err) {
+    if (err instanceof PypiRegistryError) {
+      return c.json({ error: err.code, message: err.message }, err.status === 404 ? 404 : 502);
+    }
+    if (err instanceof PypiArtifactError) {
+      return c.json({ error: err.code, message: err.message }, pypiArtifactStatus(err));
+    }
+    if (err instanceof GuardTriageError) {
+      const status =
+        err.code === 'btl_unconfigured' ? 503 : err.code === 'invalid_json' ? 502 : 502;
+      return c.json({ error: err.code, message: err.message }, status);
+    }
+    throw err;
+  }
+});
+
+/** Semgrep static analysis on extracted PyPI source (Epic 3.1–3.2) */
+app.get('/v1/guard/pypi/:name/:version/semgrep', async (c) => {
+  const name = decodeURIComponent(c.req.param('name'));
+  const version = c.req.param('version');
+  try {
+    const doc = await pypi.getVersion(name, version);
+    const { artifact } = await fetchPypiInventory(name, version, doc.urls);
+    const semgrep = await scanSemgrep({
+      auditId: routeSemgrepId('pypi', name, version),
+      extractDir: artifact.extract_dir,
+    });
+    return c.json({
+      name,
+      version,
+      semgrep,
+    });
+  } catch (err) {
+    if (err instanceof PypiRegistryError) {
+      return c.json({ error: err.code, message: err.message }, err.status === 404 ? 404 : 502);
+    }
+    if (err instanceof PypiArtifactError) {
+      return c.json({ error: err.code, message: err.message }, pypiArtifactStatus(err));
+    }
+    if (err instanceof SemgrepError) {
+      const status = err.code === 'semgrep_missing' ? 503 : 502;
+      return c.json({ error: err.code, message: err.message }, status);
+    }
+    throw err;
+  }
+});
+
 /** Live npm version doc — register before packument route */
 app.get('/v1/guard/npm/:name/:version', async (c) => {
   const name = decodeURIComponent(c.req.param('name'));
@@ -516,6 +593,33 @@ app.get('/v1/guard/npm/:name/:version/triage', async (c) => {
     if (err instanceof GuardTriageError) {
       const status =
         err.code === 'btl_unconfigured' ? 503 : err.code === 'invalid_json' ? 502 : 502;
+      return c.json({ error: err.code, message: err.message }, status);
+    }
+    throw err;
+  }
+});
+
+/** Semgrep static analysis on extracted npm source (Epic 3.1–3.2) */
+app.get('/v1/guard/npm/:name/:version/semgrep', async (c) => {
+  const name = decodeURIComponent(c.req.param('name'));
+  const version = c.req.param('version');
+  try {
+    const doc = await npm.getVersion(name, version);
+    const { artifact } = await fetchNpmInventory(name, version, doc);
+    const semgrep = await scanSemgrep({
+      auditId: routeSemgrepId('npm', name, version),
+      extractDir: artifact.extract_dir,
+    });
+    return c.json({ name, version, semgrep });
+  } catch (err) {
+    if (err instanceof NpmRegistryError) {
+      return c.json({ error: err.code, message: err.message }, err.status === 404 ? 404 : 502);
+    }
+    if (err instanceof ArtifactError) {
+      return c.json({ error: err.code, message: err.message }, artifactStatus(err));
+    }
+    if (err instanceof SemgrepError) {
+      const status = err.code === 'semgrep_missing' ? 503 : 502;
       return c.json({ error: err.code, message: err.message }, status);
     }
     throw err;

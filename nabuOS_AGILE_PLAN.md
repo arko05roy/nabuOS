@@ -1,7 +1,7 @@
 # nabuOS Agile Plan
 
-Version: 0.6  
-Date: 2026-07-04 (Epics 2.3–2.4 shipped; Sprint 2 complete)  
+Version: 0.7  
+Date: 2026-07-04 (Sprint 3 Epics 3.1–3.2 + Mind API shipped)  
 Product name: nabuOS  
 North star: A real agent operating system where package trust, secrets, deployment, memory, and decision-making are exposed as usable services, and where every agent decision is backed by BTL Runtime + evidence.
 
@@ -30,7 +30,7 @@ See `docs/scope.md`.
 ```
 apps/web
 services/api-gateway, guard, mind, vault, run, sandbox-worker
-packages/types, sdk, service-kit, btl-runtime, npm-registry, npm-artifact, pypi-registry, pypi-artifact, deps-dev, osv, guard-triage, env-secrets
+packages/types, sdk, service-kit, btl-runtime, npm-registry, npm-artifact, pypi-registry, pypi-artifact, deps-dev, osv, guard-triage, semgrep, env-secrets
 infra/, docs/
 ```
 
@@ -64,6 +64,10 @@ Stack: **pnpm workspaces**, **TypeScript (ESM)**, **Hono** + `@hono/node-server`
 | `pnpm smoke:pypi-artifact` | Live PyPI wheel download, SHA256 verify, extract (`requests@2.31.0`, `flask@3.0.0`) |
 | `pnpm smoke:pypi-inventory` | Live PyPI inventory from extracted wheel (`requests`, `flask`) |
 | `pnpm smoke:pypi-enrichment` | Live PyPI deps.dev graph + OSV batch (`requests@2.31.0`) |
+| `pnpm smoke:semgrep` | Live Semgrep per-route (`lodash@4.17.21`, `requests@2.31.0`; semgrep on PATH) |
+| `pnpm smoke:deep-audit` | Live npm deep audit job with Semgrep (`lodash@4.17.21`; needs `GATEWAY_API_KEY`) |
+| `pnpm smoke:pypi-deep-audit` | Live PyPI deep audit job with Semgrep (`requests@2.31.0`; needs `GATEWAY_API_KEY`) |
+| `pnpm smoke:mind` | Live Mind API over Guard audit (`axios@1.6.0`; mind `:3002`, guard `:3001`) |
 
 ### Sprint 0 status
 
@@ -101,6 +105,24 @@ Stack: **pnpm workspaces**, **TypeScript (ESM)**, **Hono** + `@hono/node-server`
 | 2.3 | Python inventory | **Done** (`buildPypiInventory`, guard `GET /v1/guard/pypi/:name/:version/inventory`, `pnpm smoke:pypi-inventory`) |
 | 2.4 | deps.dev + OSV PyPI | **Done** (`getPypiDependencies`, `enrichPypiPackage`, guard `/dependencies` + `/vulnerabilities`, `pnpm smoke:pypi-enrichment`) |
 
+### Sprint 3 status — **PARTIAL** (Epics 3.1–3.2 done; 3.3 Mind-on-high-risk open)
+
+| Epic | Story | Status |
+|------|-------|--------|
+| 3.1 | Semgrep worker | **Done** (`@nabuos/semgrep`, `scanSemgrep`, registry rulepacks `p/javascript`…`p/security-audit`, raw JSON at `.nabu-artifacts/semgrep/{audit_id}/`) |
+| 3.2 | Semgrep finding ingestion | **Done** (`parseSemgrepOutput`, findings on audit job + per-route `GET .../semgrep`, `pnpm smoke:semgrep`) |
+| 3.3 | Deep verdict + Mind investigation | **Partial** (`computeDeepVerdict` guard-score-v0.2 on deep jobs; auto-Mind trigger not wired) |
+
+### Mind API status — **DONE** (Epic 5.3 core; RetainDB deferred)
+
+| Epic | Story | Status |
+|------|-------|--------|
+| 5.3 | `POST /v1/mind/runs` | **Done** (`services/mind`, Apollo steps plan→gather→critique→decide→report, `pnpm smoke:mind`) |
+| 5.3 | `GET /v1/mind/runs/:id` | **Done** |
+| 5.3 | Context refs (guard_audit, package) | **Done** (fetches live completed Guard audit via `GUARD_URL`) |
+| 5.1 | Step engine persistence | **Done** (local FS `.nabu-artifacts/mind/`) |
+| 5.2 | RetainDB memory | **Deferred** |
+
 ### Live API routes (implemented)
 
 **Guard** (`services/guard`, port 3001):
@@ -115,8 +137,9 @@ Stack: **pnpm workspaces**, **TypeScript (ESM)**, **Hono** + `@hono/node-server`
 - `GET /v1/guard/npm/:name/:version/dependencies` — live deps.dev graph (`nodes`, `edges`, `relation`, cached)
 - `GET /v1/guard/npm/:name/:version/vulnerabilities` — OSV `querybatch` + vuln details for graph packages (`phases`, `cache_hits`)
 - `GET /v1/guard/npm/:name/:version/triage` — BTL triage JSON (`risk_score`, `verdict_recommendation`, `findings`, `btl_runtime` headers)
-- `POST /v1/guard/audits` — start async fast npm audit (`ecosystem: npm`, `depth: fast` only in v0); `Idempotency-Key` supported
-- `GET /v1/guard/audits/:id` — poll audit job (`status`, `phases`, `fast_verdict`, `artifact`)
+- `GET /v1/guard/npm/:name/:version/semgrep` — real Semgrep scan on extracted source (`findings`, `raw_path`)
+- `POST /v1/guard/audits` — start async audit (`ecosystem: npm|pypi`, `depth: fast|deep`); `Idempotency-Key` supported
+- `GET /v1/guard/audits/:id` — poll audit job (`status`, `phases`, `fast_verdict`, `deep_verdict`, `semgrep`, `artifact`)
 - `GET /v1/guard/check?ecosystem=&name=&version=` — cached completed verdict or `404 not_found`
 - `GET /v1/guard/pypi/:name` — live project JSON from `pypi.org` (release list, latest version)
 - `GET /v1/guard/pypi/:name/:version` — Simple JSON + release JSON merge (`urls`, `simple_files`, `yanked_files`, `all_files_yanked`)
@@ -125,6 +148,8 @@ Stack: **pnpm workspaces**, **TypeScript (ESM)**, **Hono** + `@hono/node-server`
   - Inventory: `requires_dist`, `requires_python`, `console_scripts`, `entry_points`, `native_extensions`, `sources`, `files`
 - `GET /v1/guard/pypi/:name/:version/dependencies` — live deps.dev PyPI graph (`nodes`, `edges`, cached)
 - `GET /v1/guard/pypi/:name/:version/vulnerabilities` — OSV `querybatch` with ecosystem `PyPI` + cached vuln details
+- `GET /v1/guard/pypi/:name/:version/triage` — BTL triage over PyPI evidence (`runPypiGuardTriage`)
+- `GET /v1/guard/pypi/:name/:version/semgrep` — real Semgrep scan on extracted wheel/sdist
 
 **PyPI fast audit pipeline (v0, per-route — job API still npm-only):**
 
@@ -150,6 +175,8 @@ Stack: **pnpm workspaces**, **TypeScript (ESM)**, **Hono** + `@hono/node-server`
 **Mind** (`services/mind`, port 3002):
 
 - `GET /healthz`, `GET /readyz` — readiness probes live BTL when `GATEWAY_API_KEY` set
+- `POST /v1/mind/runs` — start decision run over Guard audit context (`goal`, `mode`, `context_refs`)
+- `GET /v1/mind/runs/:id` — poll Mind run (`steps`, `decision`, `confidence`, `evidence`, `bt_runtime`)
 
 **Vault** (`services/vault`, port 3003):
 
@@ -2238,10 +2265,10 @@ If starting today:
 
 1. ~~Build `guard-service` npm fast audit.~~ **Done** — Sprint 1 complete (Epics 1.1–1.6).
 2. ~~Add OSV/deps.dev.~~ **Done**
-3. ~~Add BTL triage.~~ **Done**
+=3. ~~Add BTL triage.~~ **Done**
 4. ~~Add PyPI adapter.~~ **Done** — Sprint 2 complete (Epics 2.1–2.4).
-5. Add Mind API over Guard reports.
-6. Add Semgrep deep phase.
+5. ~~Add Mind API over Guard reports.~~ **Done** — `POST/GET /v1/mind/runs`, `pnpm smoke:mind`
+6. ~~Add Semgrep deep phase.~~ **Done** — `@nabuos/semgrep`, deep audit jobs npm+PyPI, `pnpm smoke:deep-audit`, `pnpm smoke:pypi-deep-audit`
 7. Add Vault (Infisical provider when provisioned; env-secrets covers v0).
 8. Add Run.
 9. Add Pulse package watch.

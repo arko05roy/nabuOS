@@ -1,6 +1,3 @@
-import type { BtlResponseHeaders } from '@nabuos/types';
-import { createBtlRuntime, type BtlRuntimeError } from '@nabuos/btl-runtime';
-import type { NpmInventory } from '@nabuos/npm-artifact';
 import type { DependencyGraph } from '@nabuos/deps-dev';
 import type { VulnerabilityReport } from '@nabuos/osv';
 import {
@@ -10,35 +7,15 @@ import {
   type TriageNextPhase,
   type TriageVerdict,
 } from './errors.js';
+import { createBtlRuntime } from '@nabuos/btl-runtime';
 
-export {
-  GuardTriageError,
-  type GuardTriageFinding,
-  type GuardTriageResult,
-  type TriageNextPhase,
-  type TriageVerdict,
-} from './errors.js';
-
-export interface GuardTriageInput {
-  name: string;
-  version: string;
-  metadata: {
-    dist: { integrity?: string; tarball: string };
-    scripts: Record<string, string>;
-    dependencies: Record<string, string>;
-    devDependencies?: Record<string, string>;
-  };
-  inventory: NpmInventory;
-  dependency_graph: DependencyGraph;
-  vulnerabilities: VulnerabilityReport;
-}
-
-const SYSTEM_PROMPT = `You are nabu Guard triage. Classify npm package risk using ONLY the JSON evidence provided.
+const PYPI_SYSTEM_PROMPT = `You are nabu Guard triage. Classify PyPI package risk using ONLY the JSON evidence provided.
 
 Rules:
 - Never invent files, dependencies, or vulnerabilities not present in the input.
-- Every finding MUST include a citation: a metadata field path (e.g. "scripts.postinstall") or an inventory file path (e.g. "package.json").
+- Every finding MUST include a citation: a metadata field path (e.g. "requires_dist") or an inventory file path.
 - OSV entries are deterministic signals; cite vuln id and affected package@version.
+- Yanked releases are a risk signal when present in metadata.
 - Output ONLY valid JSON matching this schema:
 {
   "risk_score": <integer 0-100>,
@@ -48,7 +25,23 @@ Rules:
   "required_next_phase": "none" | "deep" | "sandbox"
 }`;
 
-function buildEvidencePayload(input: GuardTriageInput): string {
+export interface PypiGuardTriageInput {
+  name: string;
+  version: string;
+  yanked: boolean;
+  inventory: {
+    requires_python?: string;
+    requires_dist: string[];
+    console_scripts: Record<string, string>;
+    native_extensions: string[];
+    metadata_source: string;
+    files: { count: number; paths: string[] };
+  };
+  dependency_graph: DependencyGraph;
+  vulnerabilities: VulnerabilityReport;
+}
+
+function buildPypiEvidence(input: PypiGuardTriageInput): string {
   const osvSummary = input.vulnerabilities.packages
     .filter((p) => p.vuln_ids.length > 0)
     .map((p) => ({
@@ -63,17 +56,13 @@ function buildEvidencePayload(input: GuardTriageInput): string {
 
   return JSON.stringify({
     package: `${input.name}@${input.version}`,
-    metadata: {
-      tarball: input.metadata.dist.tarball,
-      integrity: input.metadata.dist.integrity,
-      scripts: input.metadata.scripts,
-      dependencies: input.metadata.dependencies,
-      devDependencies: input.metadata.devDependencies ?? {},
-    },
+    yanked: input.yanked,
     inventory: {
-      scripts: input.inventory.scripts,
-      dependencies: input.inventory.dependencies,
-      entrypoints: input.inventory.entrypoints,
+      requires_python: input.inventory.requires_python,
+      requires_dist: input.inventory.requires_dist,
+      console_scripts: input.inventory.console_scripts,
+      native_extensions: input.inventory.native_extensions,
+      metadata_source: input.inventory.metadata_source,
       file_count: input.inventory.files.count,
       sample_paths: input.inventory.files.paths.slice(0, 40),
     },
@@ -121,8 +110,8 @@ function parseTriageJson(text: string): GuardTriageResult | null {
   }
 }
 
-export async function runGuardTriage(
-  input: GuardTriageInput,
+export async function runPypiGuardTriage(
+  input: PypiGuardTriageInput,
   options?: { apiKey?: string; model?: string },
 ): Promise<GuardTriageResult> {
   const apiKey = options?.apiKey ?? process.env.GATEWAY_API_KEY;
@@ -132,10 +121,10 @@ export async function runGuardTriage(
 
   const model = options?.model ?? process.env.BTL_TRIAGE_MODEL ?? 'btl-2';
   const btl = createBtlRuntime({ apiKey });
-  const evidence = buildEvidencePayload(input);
+  const evidence = buildPypiEvidence(input);
 
   const messages = [
-    { role: 'system', content: SYSTEM_PROMPT },
+    { role: 'system', content: PYPI_SYSTEM_PROMPT },
     { role: 'user', content: evidence },
   ];
 
@@ -163,9 +152,7 @@ export async function runGuardTriage(
       ],
     });
     parsed = repair.content ? parseTriageJson(repair.content) : null;
-    if (parsed) {
-      completion = repair;
-    }
+    if (parsed) completion = repair;
   }
 
   if (!parsed) {
@@ -179,11 +166,3 @@ export async function runGuardTriage(
 
   return parsed;
 }
-
-export {
-  enrichNpmPackage,
-  enrichPypiPackage,
-  type NpmEnrichmentResult,
-  type EnrichmentPhase,
-} from './enrichment.js';
-export { runPypiGuardTriage, type PypiGuardTriageInput } from './pypi-triage.js';
