@@ -1,7 +1,7 @@
 # nabuOS Agile Plan
 
-Version: 0.4  
-Date: 2026-07-04 (Epics 1.4–1.5 shipped)  
+Version: 0.5  
+Date: 2026-07-04 (Epics 1.6, 2.1–2.2 shipped)  
 Product name: nabuOS  
 North star: A real agent operating system where package trust, secrets, deployment, memory, and decision-making are exposed as usable services, and where every agent decision is backed by BTL Runtime + evidence.
 
@@ -17,6 +17,7 @@ External services active in development:
 |---------|--------|-------|
 | BTL Runtime | **Active** | `GATEWAY_API_KEY` in `.env`, `@nabuos/btl-runtime`, `pnpm smoke:btl` |
 | npm registry | **Active** | Public API, no key; `@nabuos/npm-registry`, `pnpm smoke:npm` |
+| PyPI | **Active** | Public API, no key; `@nabuos/pypi-registry`, `@nabuos/pypi-artifact`, `pnpm smoke:pypi` |
 | deps.dev | **Active** | Public API, no key; `@nabuos/deps-dev`, `pnpm smoke:enrichment` |
 | OSV | **Active** | Public API, no key; `@nabuos/osv`, local vuln detail cache |
 | RetainDB | **Deferred** | No API key yet; memory persistence skipped until provisioned |
@@ -29,7 +30,7 @@ See `docs/scope.md`.
 ```
 apps/web
 services/api-gateway, guard, mind, vault, run, sandbox-worker
-packages/types, sdk, service-kit, btl-runtime, npm-registry, npm-artifact, deps-dev, osv, guard-triage, env-secrets
+packages/types, sdk, service-kit, btl-runtime, npm-registry, npm-artifact, pypi-registry, pypi-artifact, deps-dev, osv, guard-triage, env-secrets
 infra/, docs/
 ```
 
@@ -58,6 +59,9 @@ Stack: **pnpm workspaces**, **TypeScript (ESM)**, **Hono** + `@hono/node-server`
 | `pnpm smoke:artifact` | Live tarball download, SRI verify, extract + inventory (`axios@1.6.0`, `lodash@4.17.21`) |
 | `pnpm smoke:enrichment` | Live deps.dev graph + OSV batch (`axios@1.6.0`) |
 | `pnpm smoke:triage` | Live BTL triage via guard (`axios@1.6.0`; guard needs `--env-file=../../.env`) |
+| `pnpm smoke:audit` | Live unified fast audit job API (`POST` + poll + `check`; needs `GATEWAY_API_KEY`) |
+| `pnpm smoke:pypi` | Live PyPI metadata via guard (`requests`, `flask`, `Django`) |
+| `pnpm smoke:pypi-artifact` | Live PyPI wheel download, SHA256 verify, extract (`requests@2.31.0`, `flask@3.0.0`) |
 
 ### Sprint 0 status
 
@@ -72,7 +76,7 @@ Stack: **pnpm workspaces**, **TypeScript (ESM)**, **Hono** + `@hono/node-server`
 | 0.2 | 4. Secrets outside repository | **Done** (`.env` gitignored, `.env.example` committed) |
 | 0.3 | 1–3. OpenTelemetry | **Not started** |
 
-### Sprint 1 status (Epic 1.6 remaining)
+### Sprint 1 status — **DONE** (Epic 1.1 acceptance: DB snapshot still open)
 
 | Epic | Story | Status |
 |------|-------|--------|
@@ -84,7 +88,16 @@ Stack: **pnpm workspaces**, **TypeScript (ESM)**, **Hono** + `@hono/node-server`
 | 1.3 | Inventory | **Done** (guard `GET /v1/guard/npm/:name/:version/inventory`, `pnpm smoke:artifact`) |
 | 1.4 | deps.dev + OSV | **Done** (`@nabuos/deps-dev`, `@nabuos/osv`, guard `/dependencies` + `/vulnerabilities`, `pnpm smoke:enrichment`) |
 | 1.5 | BTL Runtime triage | **Done** (`@nabuos/guard-triage`, guard `GET /v1/guard/npm/:name/:version/triage`, `pnpm smoke:triage`) |
-| 1.6 | Public audit API | **Not started** |
+| 1.6 | Public audit API | **Done** (`POST /v1/guard/audits`, `GET /v1/guard/audits/:id`, `GET /v1/guard/check`, `pnpm smoke:audit`) |
+
+### Sprint 2 status (Epics 2.3–2.4 remaining)
+
+| Epic | Story | Status |
+|------|-------|--------|
+| 2.1 | PyPI metadata adapter | **Done** (`@nabuos/pypi-registry`, guard `GET /v1/guard/pypi/:name`, `GET /v1/guard/pypi/:name/:version`, `pnpm smoke:pypi`) |
+| 2.2 | PyPI artifact download + hash | **Done** (`@nabuos/pypi-artifact`, guard `GET /v1/guard/pypi/:name/:version/artifact`, `pnpm smoke:pypi-artifact`) |
+| 2.3 | Python inventory | **Not started** |
+| 2.4 | deps.dev + OSV PyPI | **Not started** |
 
 ### Live API routes (implemented)
 
@@ -100,8 +113,14 @@ Stack: **pnpm workspaces**, **TypeScript (ESM)**, **Hono** + `@hono/node-server`
 - `GET /v1/guard/npm/:name/:version/dependencies` — live deps.dev graph (`nodes`, `edges`, `relation`, cached)
 - `GET /v1/guard/npm/:name/:version/vulnerabilities` — OSV `querybatch` + vuln details for graph packages (`phases`, `cache_hits`)
 - `GET /v1/guard/npm/:name/:version/triage` — BTL triage JSON (`risk_score`, `verdict_recommendation`, `findings`, `btl_runtime` headers)
+- `POST /v1/guard/audits` — start async fast npm audit (`ecosystem: npm`, `depth: fast` only in v0); `Idempotency-Key` supported
+- `GET /v1/guard/audits/:id` — poll audit job (`status`, `phases`, `fast_verdict`, `artifact`)
+- `GET /v1/guard/check?ecosystem=&name=&version=` — cached completed verdict or `404 not_found`
+- `GET /v1/guard/pypi/:name` — live project JSON from `pypi.org` (release list, latest version)
+- `GET /v1/guard/pypi/:name/:version` — Simple JSON + release JSON merge (`urls`, `simple_files`, `yanked_files`, `all_files_yanked`)
+- `GET /v1/guard/pypi/:name/:version/artifact` — download wheel (prefer) or sdist from `files.pythonhosted.org`, verify SHA256, cache + extract
 
-**npm fast audit pipeline (v0, per-route — Epic 1.6 will unify as `POST /v1/guard/audits`):**
+**npm fast audit pipeline** (per-route or via `POST /v1/guard/audits`):
 
 1. `GET .../:version` — registry metadata
 2. `GET .../artifact` — download + SRI verify + extract
@@ -109,6 +128,11 @@ Stack: **pnpm workspaces**, **TypeScript (ESM)**, **Hono** + `@hono/node-server`
 4. `GET .../dependencies` — deps.dev resolved graph
 5. `GET .../vulnerabilities` — OSV batch + cached vuln details
 6. `GET .../triage` — BTL classification over steps 1–5 evidence
+
+**PyPI pipeline (v0, per-route — audit job API is npm-only until Sprint 2 enrichment lands):**
+
+1. `GET .../pypi/:name/:version` — Simple JSON + release metadata
+2. `GET .../pypi/:name/:version/artifact` — wheel/sdist download + SHA256 verify + extract
 
 **Mind** (`services/mind`, port 3002):
 
@@ -163,16 +187,41 @@ Stack: **pnpm workspaces**, **TypeScript (ESM)**, **Hono** + `@hono/node-server`
 - Guard start for triage: `node --env-file=../../.env dist/index.js` (same as mind)
 - Verified live: `axios@1.6.0` triage → `risk_score=85`, `verdict_recommendation=block`, 7 findings, model `btl-2`
 
+### Public audit job API notes (learned, Epic 1.6)
+
+- v0 store: local FS at `.nabu-artifacts/audits/{audit_id}.json` + check index under `audits/check/`; ponytail upgrade path = Postgres `audit_jobs`
+- `POST /v1/guard/audits` returns `202` with `audit_id`, runs pipeline async (`metadata` → `artifact` → `inventory` → `deps.dev` → `osv` → `triage`)
+- `fast_verdict.score` = `100 - triage.risk_score` (`guard-score-v0.1`); `fast_verdict.verdict` from BTL triage
+- `Idempotency-Key` header + in-flight dedupe per `ecosystem:name:version:depth`
+- v0 limits: `ecosystem` must be `npm`; `depth` must be `fast` (`pypi` / `deep` / `sandbox` → `400`)
+- Live smoke: `pnpm smoke:audit` (`axios@1.6.0`; guard needs `--env-file=../../.env`)
+- Verified live: `axios@1.6.0` audit → `verdict=block`, `score=15`, 6 phases completed
+
+### PyPI metadata + artifact notes (learned, Epic 2.1–2.2)
+
+- Package: `@nabuos/pypi-registry` — `getSimpleIndex`, `getProject`, `getReleaseJson`, `getVersion`, `normalizePackageName` (PEP 503)
+- Simple JSON: `GET https://pypi.org/simple/<project>/` with `Accept: application/vnd.pypi.simple.v1+json`
+- Release JSON: `GET https://pypi.org/pypi/<project>/<version>/json`
+- Yanked: `yanked_files[]`, `all_files_yanked` on version route; Simple JSON `yanked` may be `false` or reason string
+- Package: `@nabuos/pypi-artifact` — `selectPypiArtifact` (wheel preferred), `fetchPypiArtifact`, SHA256 verify vs `digests.sha256`
+- Download hosts allowed: `files.pythonhosted.org`, `pypi.org` (SSRF guard)
+- v0 storage: `.nabu-artifacts/pypi/{name}/{version}/`; wheel extract via system `unzip`, sdist via `tar`
+- Self-check: `pnpm --filter @nabuos/pypi-registry self-check`, `pnpm --filter @nabuos/pypi-artifact self-check`
+- Live smoke: `pnpm smoke:pypi` (`requests`, `flask`, `Django`); `pnpm smoke:pypi-artifact` (`requests@2.31.0`, `flask@3.0.0`)
+- Verified live: `requests@2.31.0` wheel → 23 extracted files, `digest_verified=true`; `Django` name normalizes to `django`
+
 ### Packages shipped
 
 | Package | Role |
 |---------|------|
-| `@nabuos/types` | `AuditJob`, `AuditVerdict`, `MindRun`, `SecretRef`, `AgentDeployment`, `BtlResponseHeaders` |
+| `@nabuos/types` | `AuditJob`, `AuditVerdict`, `CreateAuditRequest`, `GuardCheckResponse`, `MindRun`, `SecretRef`, `AgentDeployment`, `BtlResponseHeaders` |
 | `@nabuos/sdk` | Re-exports core types (client methods later) |
 | `@nabuos/service-kit` | Shared `/healthz` and `/readyz` |
 | `@nabuos/btl-runtime` | Live BTL HTTP client (`ping`, `chatCompletion`, header parsing) |
 | `@nabuos/npm-registry` | Live npm registry client (`getPackument`, `getVersion`) |
 | `@nabuos/npm-artifact` | Live tarball download, SRI/shasum verify, local artifact cache, extract, `buildInventory`; dep: `tar` |
+| `@nabuos/pypi-registry` | Live PyPI Simple JSON + release JSON client (`getVersion`, `normalizePackageName`) |
+| `@nabuos/pypi-artifact` | Live PyPI wheel/sdist download, SHA256 verify, local cache, extract; dep: `tar` |
 | `@nabuos/deps-dev` | Live deps.dev `GetDependencies` client with local graph cache |
 | `@nabuos/osv` | OSV `querybatch` + vuln detail fetch with local cache |
 | `@nabuos/guard-triage` | BTL triage prompt + `enrichNpmPackage` orchestration |
@@ -186,7 +235,8 @@ Sprint 0 stories satisfied where marked **Done**, with these gaps still open for
 - Postgres metadata snapshot storage (Epic 1.1 acceptance)
 - S3-compatible artifact object storage (Epic 1.2 v0 uses local FS only)
 - OSV/deps.dev caches are local FS only (Epic 1.4 v0; Postgres later)
-- Public audit job API + verdict persistence (Epic 1.6)
+- Audit job persistence is local FS only (Epic 1.6 v0; Postgres later)
+- `POST /v1/guard/audits` is npm + fast depth only; PyPI audit job path not wired yet
 - CI pipeline and deployment manifests (`infra/` placeholder)
 - RetainDB and Infisical acceptance criteria explicitly waived until keys are provisioned
 
@@ -1384,7 +1434,7 @@ Goal:
 
 - Public API can audit a real npm package version with real metadata, real tarball hash verification, OSV, deps.dev, inventory, and BTL triage.
 
-**Sprint 1 progress:** Epics 1.1–1.5 done; Epic 1.6 (public audit API) not started.
+**Sprint 1 progress:** Epics 1.1–1.6 **done** (1.1 DB snapshot acceptance still open).
 
 ### Epic 1.1: npm Metadata Adapter — **DONE** (routes + client; DB snapshot pending)
 
@@ -1500,21 +1550,21 @@ Acceptance:
 - ✅ Rejects invalid JSON and retries once with repair prompt
 - ✅ Findings must cite concrete metadata fields or file paths (prompt-enforced)
 
-### Epic 1.6: Public Guard API — **NOT STARTED**
+### Epic 1.6: Public Guard API — **DONE**
 
 Unifies the per-route fast audit pipeline above into job-based API:
 
 Stories:
 
-1. `POST /v1/guard/audits`.
-2. `GET /v1/guard/audits/:id`.
-3. `GET /v1/guard/check`.
+1. ✅ `POST /v1/guard/audits`.
+2. ✅ `GET /v1/guard/audits/:id`.
+3. ✅ `GET /v1/guard/check`.
 
 Acceptance:
 
-- User can audit a real npm package.
-- User can retrieve status.
-- Cached check returns completed verdict.
+- ✅ User can audit a real npm package (`pnpm smoke:audit`, `axios@1.6.0`).
+- ✅ User can retrieve status (poll `GET /v1/guard/audits/:id`).
+- ✅ Cached check returns completed verdict (`GET /v1/guard/check`).
 
 ## 9. Sprint 2: Guard Fast Audit for PyPI
 
@@ -1524,43 +1574,45 @@ Goal:
 
 - Public API can audit real PyPI package versions.
 
-### Epic 2.1: PyPI Metadata Adapter
+**Sprint 2 progress:** Epics 2.1–2.2 done; Epics 2.3–2.4 not started.
+
+### Epic 2.1: PyPI Metadata Adapter — **DONE**
 
 Stories:
 
-1. Implement Simple JSON client:
+1. ✅ Implement Simple JSON client:
    - `GET https://pypi.org/simple/<project>/`
    - `Accept: application/vnd.pypi.simple.v1+json`
 
-2. Implement release metadata fallback:
+2. ✅ Implement release metadata fallback:
    - `GET https://pypi.org/pypi/<project>/<version>/json`
 
-3. Normalize package names per Python packaging rules.
+3. ✅ Normalize package names per Python packaging rules.
 
 Acceptance:
 
-- Fetches real metadata for:
+- ✅ Fetches real metadata for:
   - `requests`
   - `flask`
-  - `django`
-- Handles yanked files.
+  - `django` (smoke uses `Django` → normalizes to `django`)
+- ✅ Handles yanked files (`yanked_files`, `all_files_yanked` on version response).
 
-### Epic 2.2: PyPI Artifact Download and Hash
+### Epic 2.2: PyPI Artifact Download and Hash — **DONE**
 
 Stories:
 
-1. Select artifact:
+1. ✅ Select artifact:
    - Prefer wheel for inventory.
    - Also support sdist.
-2. Download file from PyPI file URL.
-3. Verify SHA256 digest.
-4. Extract wheel/sdist safely.
+2. ✅ Download file from PyPI file URL.
+3. ✅ Verify SHA256 digest.
+4. ✅ Extract wheel/sdist safely.
 
 Acceptance:
 
-- `requests==2.31.0` downloads and verifies.
-- Digest mismatch test fails.
-- Yanked package warns.
+- ✅ `requests==2.31.0` downloads and verifies (`pnpm smoke:pypi-artifact`).
+- ✅ Digest mismatch rejected (`pnpm --filter @nabuos/pypi-artifact self-check`).
+- ⏳ Yanked package warns — version route exposes yanked state; artifact route returns `422 all_yanked` when every file yanked (no dedicated yanked-only smoke yet).
 
 ### Epic 2.3: Python Inventory
 
@@ -2182,10 +2234,10 @@ Mitigation:
 
 If starting today:
 
-1. ~~Build `guard-service` npm fast audit.~~ **In progress** — Epics 1.1–1.5 done; continue 1.6 public audit API.
-2. Add OSV/deps.dev.
-3. Add BTL triage.
-4. Add PyPI adapter.
+1. ~~Build `guard-service` npm fast audit.~~ **Done** — Sprint 1 complete (Epics 1.1–1.6).
+2. ~~Add OSV/deps.dev.~~ **Done**
+3. ~~Add BTL triage.~~ **Done**
+4. ~~Add PyPI adapter.~~ **In progress** — Epics 2.1–2.2 done; continue 2.3 inventory + 2.4 enrichment.
 5. Add Mind API over Guard reports.
 6. Add Semgrep deep phase.
 7. Add Vault (Infisical provider when provisioned; env-secrets covers v0).
@@ -2193,7 +2245,7 @@ If starting today:
 9. Add Pulse package watch.
 10. Add gVisor sandbox.
 
-**Completed so far (2026-07-04):** Sprint 0 foundation, BTL client, env-based vault hack, npm metadata + artifact + inventory, deps.dev/OSV enrichment, BTL guard triage.
+**Completed so far (2026-07-04):** Sprint 0 foundation, BTL client, env-based vault hack, npm metadata + artifact + inventory, deps.dev/OSV enrichment, BTL guard triage, public npm fast audit job API (Epic 1.6), PyPI metadata + artifact download (Epics 2.1–2.2).
 
 Reason:
 

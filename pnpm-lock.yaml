@@ -62,6 +62,21 @@ importers:
 
   packages/osv: {}
 
+  packages/pypi-artifact:
+    dependencies:
+      '@nabuos/pypi-registry':
+        specifier: workspace:*
+        version: link:../pypi-registry
+      tar:
+        specifier: ^7.4.3
+        version: 7.5.19
+    devDependencies:
+      '@types/tar':
+        specifier: ^6.1.13
+        version: 6.1.13
+
+  packages/pypi-registry: {}
+
   packages/sdk:
     dependencies:
       '@nabuos/types':
@@ -115,9 +130,18 @@ importers:
       '@nabuos/osv':
         specifier: workspace:*
         version: link:../../packages/osv
+      '@nabuos/pypi-artifact':
+        specifier: workspace:*
+        version: link:../../packages/pypi-artifact
+      '@nabuos/pypi-registry':
+        specifier: workspace:*
+        version: link:../../packages/pypi-registry
       '@nabuos/service-kit':
         specifier: workspace:*
         version: link:../../packages/service-kit
+      '@nabuos/types':
+        specifier: workspace:*
+        version: link:../../packages/types
       hono:
         specifier: ^4.7.11
         version: 4.12.27

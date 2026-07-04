@@ -9,9 +9,12 @@
     "health:check": "node scripts/check-health.mjs",
     "smoke:btl": "node --env-file=.env scripts/smoke-btl.mjs",
     "smoke:npm": "node scripts/smoke-npm.mjs",
+    "smoke:pypi": "node scripts/smoke-pypi.mjs",
+    "smoke:pypi-artifact": "node scripts/smoke-pypi-artifact.mjs",
     "smoke:artifact": "node scripts/smoke-artifact.mjs",
     "smoke:enrichment": "node scripts/smoke-enrichment.mjs",
-    "smoke:triage": "node --env-file=.env scripts/smoke-triage.mjs"
+    "smoke:triage": "node --env-file=.env scripts/smoke-triage.mjs",
+    "smoke:audit": "node --env-file=.env scripts/smoke-audit.mjs"
   },
   "engines": {
     "node": ">=20"

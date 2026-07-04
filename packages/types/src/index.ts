@@ -38,6 +38,36 @@ export interface AuditPhase {
   error?: string;
 }
 
+/** POST /v1/guard/audits request body. */
+export interface CreateAuditRequest {
+  ecosystem: Ecosystem;
+  name: string;
+  version: string;
+  depth: AuditDepth;
+}
+
+/** GET /v1/guard/check response when a completed audit exists. */
+export interface GuardCheckHit {
+  status: 'completed';
+  audit_id: string;
+  ecosystem: Ecosystem;
+  name: string;
+  version: string;
+  artifact?: AuditArtifact;
+  fast_verdict: AuditVerdict;
+  updated_at: string;
+}
+
+/** GET /v1/guard/check when no cached verdict exists. */
+export interface GuardCheckMiss {
+  status: 'not_found';
+  ecosystem: Ecosystem;
+  name: string;
+  version: string;
+}
+
+export type GuardCheckResponse = GuardCheckHit | GuardCheckMiss;
+
 /** Guard audit job persisted and returned by POST/GET /v1/guard/audits. */
 export interface AuditJob {
   audit_id: string;

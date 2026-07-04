@@ -16,7 +16,10 @@
     "@nabuos/npm-artifact": "workspace:*",
     "@nabuos/npm-registry": "workspace:*",
     "@nabuos/osv": "workspace:*",
+    "@nabuos/pypi-registry": "workspace:*",
+    "@nabuos/pypi-artifact": "workspace:*",
     "@nabuos/service-kit": "workspace:*",
+    "@nabuos/types": "workspace:*",
     "hono": "^4.7.11"
   },
   "devDependencies": {
