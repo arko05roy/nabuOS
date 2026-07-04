@@ -53,8 +53,11 @@ export interface GuardCheckHit {
   ecosystem: Ecosystem;
   name: string;
   version: string;
+  depth?: AuditDepth;
   artifact?: AuditArtifact;
   fast_verdict: AuditVerdict;
+  deep_verdict?: AuditVerdict | null;
+  mind_investigation?: MindInvestigation | null;
   updated_at: string;
 }
 
@@ -103,9 +106,20 @@ export interface AuditJob {
   fast_verdict?: AuditVerdict | null;
   deep_verdict?: AuditVerdict | null;
   semgrep?: SemgrepRun;
+  mind_investigation?: MindInvestigation | null;
   phases: AuditPhase[];
   created_at: string;
   updated_at: string;
+}
+
+export type MindStatus = 'pending' | 'running' | 'completed' | 'failed';
+
+/** Mind incident run triggered by Guard deep audit (Epic 3.3). */
+export interface MindInvestigation {
+  mind_run_id: string;
+  status: MindStatus | 'skipped';
+  triggered_at: string;
+  trigger_reason: string;
 }
 
 export type MindMode = 'brief' | 'deep' | 'policy' | 'incident';
@@ -132,8 +146,6 @@ export interface CreateMindRunRequest {
   mode: MindMode;
   context_refs?: MindContextRef[];
 }
-
-export type MindStatus = 'pending' | 'running' | 'completed' | 'failed';
 
 export type MindDecision =
   | 'allow'

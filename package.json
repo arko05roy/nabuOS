@@ -20,6 +20,7 @@
     "smoke:deep-audit": "node --env-file=.env scripts/smoke-deep-audit.mjs",
     "smoke:semgrep": "node scripts/smoke-semgrep.mjs",
     "smoke:pypi-deep-audit": "node --env-file=.env scripts/smoke-pypi-deep-audit.mjs",
+    "smoke:deep-audit-mind": "node --env-file=.env scripts/smoke-deep-audit-mind.mjs",
     "smoke:mind": "node --env-file=.env scripts/smoke-mind.mjs"
   },
   "engines": {

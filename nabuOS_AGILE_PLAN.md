@@ -67,6 +67,7 @@ Stack: **pnpm workspaces**, **TypeScript (ESM)**, **Hono** + `@hono/node-server`
 | `pnpm smoke:semgrep` | Live Semgrep per-route (`lodash@4.17.21`, `requests@2.31.0`; semgrep on PATH) |
 | `pnpm smoke:deep-audit` | Live npm deep audit job with Semgrep (`lodash@4.17.21`; needs `GATEWAY_API_KEY`) |
 | `pnpm smoke:pypi-deep-audit` | Live PyPI deep audit job with Semgrep (`requests@2.31.0`; needs `GATEWAY_API_KEY`) |
+| `pnpm smoke:deep-audit-mind` | Live deep audit auto-Mind incident (`node-ipc@9.1.1`; guard `:3001`, mind `:3002`, `GATEWAY_API_KEY`) |
 | `pnpm smoke:mind` | Live Mind API over Guard audit (`axios@1.6.0`; mind `:3002`, guard `:3001`) |
 
 ### Sprint 0 status
@@ -105,13 +106,13 @@ Stack: **pnpm workspaces**, **TypeScript (ESM)**, **Hono** + `@hono/node-server`
 | 2.3 | Python inventory | **Done** (`buildPypiInventory`, guard `GET /v1/guard/pypi/:name/:version/inventory`, `pnpm smoke:pypi-inventory`) |
 | 2.4 | deps.dev + OSV PyPI | **Done** (`getPypiDependencies`, `enrichPypiPackage`, guard `/dependencies` + `/vulnerabilities`, `pnpm smoke:pypi-enrichment`) |
 
-### Sprint 3 status — **PARTIAL** (Epics 3.1–3.2 done; 3.3 Mind-on-high-risk open)
+### Sprint 3 status — **DONE** (Epic 3.3 Mind auto-trigger on high-risk Semgrep)
 
 | Epic | Story | Status |
 |------|-------|--------|
 | 3.1 | Semgrep worker | **Done** (`@nabuos/semgrep`, `scanSemgrep`, registry rulepacks `p/javascript`…`p/security-audit`, raw JSON at `.nabu-artifacts/semgrep/{audit_id}/`) |
 | 3.2 | Semgrep finding ingestion | **Done** (`parseSemgrepOutput`, findings on audit job + per-route `GET .../semgrep`, `pnpm smoke:semgrep`) |
-| 3.3 | Deep verdict + Mind investigation | **Partial** (`computeDeepVerdict` guard-score-v0.2 on deep jobs; auto-Mind trigger not wired) |
+| 3.3 | Deep verdict + Mind investigation | **Done** (`computeDeepVerdict` guard-score-v0.2; `needsMindInvestigation` → live `POST /v1/mind/runs` incident mode; `mind_investigation` on audit job; `pnpm smoke:deep-audit-mind`) |
 
 ### Mind API status — **DONE** (Epic 5.3 core; RetainDB deferred)
 

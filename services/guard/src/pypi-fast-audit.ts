@@ -1,48 +1,22 @@
-import type { AuditJob, AuditPhase, AuditVerdict } from '@nabuos/types';
+import type { AuditJob, AuditVerdict } from '@nabuos/types';
 import type { createDepsDevClient } from '@nabuos/deps-dev';
 import { fetchPypiInventory, PypiArtifactError } from '@nabuos/pypi-artifact';
 import { PypiRegistryError, type createPypiRegistryClient } from '@nabuos/pypi-registry';
 import type { createOsvClient } from '@nabuos/osv';
-import { computeDeepVerdict, scanSemgrep, SemgrepError } from '@nabuos/semgrep';
+import { SemgrepError } from '@nabuos/semgrep';
 import {
   enrichPypiPackage,
   GuardTriageError,
   runPypiGuardTriage,
   type GuardTriageResult,
 } from '@nabuos/guard-triage';
+import { upsertPhase } from './audit-phases.js';
 import { saveAudit } from './audit-store.js';
+import { runDeepAuditPhases } from './deep-audit.js';
 
 type PypiClient = ReturnType<typeof createPypiRegistryClient>;
 type DepsDevClient = ReturnType<typeof createDepsDevClient>;
 type OsvClient = ReturnType<typeof createOsvClient>;
-
-function now(): string {
-  return new Date().toISOString();
-}
-
-function upsertPhase(phases: AuditPhase[], name: string, status: AuditPhase['status'], error?: string): void {
-  const phase = phases.find((p) => p.name === name);
-  if (phase) {
-    phase.status = status;
-    if (status === 'running' && !phase.started_at) phase.started_at = now();
-    if (status === 'completed' || status === 'degraded' || status === 'failed' || status === 'skipped') {
-      phase.completed_at = now();
-    }
-    if (error) phase.error = error;
-    else delete phase.error;
-    return;
-  }
-  phases.push({
-    name,
-    status,
-    started_at: now(),
-    completed_at:
-      status === 'completed' || status === 'degraded' || status === 'failed' || status === 'skipped'
-        ? now()
-        : undefined,
-    error,
-  });
-}
 
 function triageToVerdict(triage: GuardTriageResult): AuditVerdict {
   return {
@@ -103,18 +77,14 @@ export async function runPypiFastAudit(
     job.fast_verdict = triageToVerdict(triage);
 
     if (job.depth === 'deep') {
-      upsertPhase(job.phases, 'semgrep', 'running');
-      await saveAudit(job);
       const dir = extractDir;
       if (!dir) {
         throw new Error('extract_dir missing after artifact phase');
       }
-      const semgrep = await scanSemgrep({ auditId: job.audit_id, extractDir: dir });
-      job.semgrep = semgrep;
-      upsertPhase(job.phases, 'semgrep', 'completed');
-      job.deep_verdict = computeDeepVerdict(job.fast_verdict, semgrep.findings);
+      await runDeepAuditPhases(job, job.fast_verdict, dir);
     } else {
       job.deep_verdict = null;
+      job.mind_investigation = null;
     }
 
     job.status = 'completed';

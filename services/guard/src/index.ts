@@ -219,8 +219,11 @@ app.get('/v1/guard/check', async (c) => {
     ecosystem: job.ecosystem,
     name: job.name,
     version: job.version,
+    depth: job.depth,
     artifact: job.artifact,
     fast_verdict: job.fast_verdict,
+    deep_verdict: job.deep_verdict ?? null,
+    mind_investigation: job.mind_investigation ?? null,
     updated_at: job.updated_at,
   };
   return c.json(hit);

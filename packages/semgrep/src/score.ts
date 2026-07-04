@@ -68,3 +68,10 @@ export function computeDeepVerdict(
     scoring_version: 'guard-score-v0.2',
   };
 }
+
+/** Epic 3.3 — auto-Mind when critical/high static findings exist. */
+export function needsMindInvestigation(findings: SemgrepFinding[]): boolean {
+  return findings.some(
+    (f) => f.severity === 'critical' || f.severity === 'high' || isHardBlockFinding(f),
+  );
+}

@@ -1,5 +1,5 @@
 import { normalizeSeverity, parseSemgrepOutput } from './parse.js';
-import { computeDeepVerdict } from './score.js';
+import { computeDeepVerdict, needsMindInvestigation } from './score.js';
 
 export function semgrepSelfCheck(): void {
   const sample = {
@@ -30,6 +30,9 @@ export function semgrepSelfCheck(): void {
   );
   if (deep.verdict !== 'block' || deep.scoring_version !== 'guard-score-v0.2') {
     throw new Error('computeDeepVerdict self-check failed');
+  }
+  if (!needsMindInvestigation(parsed.findings)) {
+    throw new Error('needsMindInvestigation self-check failed');
   }
   console.log('ok semgrep self-check');
 }
