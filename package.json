@@ -24,7 +24,11 @@
     "smoke:mind": "node --env-file=.env scripts/smoke-mind.mjs",
     "smoke:vault": "node --env-file=.env scripts/smoke-vault.mjs",
     "smoke:run": "node --env-file=.env scripts/smoke-run.mjs",
-    "smoke:pulse": "node --env-file=.env scripts/smoke-pulse.mjs"
+    "smoke:pulse": "node --env-file=.env scripts/smoke-pulse.mjs",
+    "smoke:sandbox": "node scripts/smoke-sandbox.mjs",
+    "smoke:sandbox-audit": "node --env-file=.env scripts/smoke-sandbox-audit.mjs",
+    "smoke:pypi-sandbox-audit": "node --env-file=.env scripts/smoke-pypi-sandbox-audit.mjs",
+    "smoke:gateway": "node scripts/smoke-gateway.mjs"
   },
   "engines": {
     "node": ">=20"

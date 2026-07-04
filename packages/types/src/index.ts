@@ -106,6 +106,7 @@ export interface AuditJob {
   fast_verdict?: AuditVerdict | null;
   deep_verdict?: AuditVerdict | null;
   semgrep?: SemgrepRun;
+  sandbox?: SandboxAuditRun | null;
   mind_investigation?: MindInvestigation | null;
   phases: AuditPhase[];
   created_at: string;
@@ -381,4 +382,78 @@ export interface HealthResponse {
   status: 'ok';
   service: string;
   uptime_seconds: number;
+}
+
+export type SandboxImage = 'node' | 'python';
+
+export type SandboxRunStatus = 'pending' | 'running' | 'completed' | 'failed' | 'timeout';
+
+/** POST /v1/sandbox/runs request body. */
+export interface CreateSandboxRunRequest {
+  extract_dir: string;
+  image: SandboxImage;
+  command: string[];
+  timeout_ms?: number;
+  memory_mb?: number;
+  cpus?: number;
+  audit_id?: string;
+  ecosystem?: Ecosystem;
+  name?: string;
+  version?: string;
+}
+
+export interface SandboxResourceLimits {
+  memory_mb: number;
+  cpus: number;
+  timeout_ms: number;
+}
+
+export interface SandboxMounts {
+  artifact: { host: string; container: string; mode: 'ro' };
+  scratch: { host: string; container: string; mode: 'rw' };
+}
+
+/** gVisor-backed sandbox run from sandbox-worker. */
+export interface SandboxRun {
+  run_id: string;
+  status: SandboxRunStatus;
+  runtime: 'runsc';
+  network_mode: 'none';
+  image: string;
+  command: string[];
+  resource_limits: SandboxResourceLimits;
+  mounts: SandboxMounts;
+  exit_code?: number;
+  stdout: string;
+  stderr: string;
+  duration_ms?: number;
+  files_written: string[];
+  network_probe_failed: boolean;
+  raw_log_path: string;
+  audit_id?: string;
+  ecosystem?: Ecosystem;
+  name?: string;
+  version?: string;
+  error?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export type SandboxPhaseKind = 'npm_lifecycle' | 'pypi_install';
+
+/** Dynamic analysis evidence linked to a Guard audit (Epic 4.3–4.5). */
+export interface SandboxAuditRun {
+  run_id: string;
+  sandbox_run_id: string;
+  phase: SandboxPhaseKind;
+  status: SandboxRunStatus;
+  exit_code?: number;
+  stdout: string;
+  stderr: string;
+  duration_ms?: number;
+  files_written: string[];
+  network_isolated: boolean;
+  hard_block_signals: string[];
+  process_hints: string[];
+  raw_path: string;
 }

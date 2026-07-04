@@ -20,6 +20,12 @@ import {
 } from '@nabuos/guard-triage';
 import { computeDeepVerdict, scanSemgrep, SemgrepError } from '@nabuos/semgrep';
 import {
+  probeSandboxRuntime,
+  runNpmLifecycleSandbox,
+  runPypiInstallSandbox,
+  SandboxError,
+} from '@nabuos/sandbox';
+import {
   fetchPypiArtifact,
   fetchPypiInventory,
   PypiArtifactError,
@@ -80,7 +86,8 @@ function artifactStatus(err: ArtifactError): 400 | 422 | 502 {
 
 function initialPhases(depth: AuditJob['depth']): AuditJob['phases'] {
   const names = ['metadata', 'artifact', 'inventory', 'deps.dev', 'osv', 'triage'];
-  if (depth === 'deep') names.push('semgrep');
+  if (depth === 'deep' || depth === 'sandbox') names.push('semgrep');
+  if (depth === 'sandbox') names.push('sandbox');
   return names.map((name) => ({
     name,
     status: 'pending' as const,
@@ -136,11 +143,11 @@ app.post('/v1/guard/audits', async (c) => {
     return c.json({ error: 'invalid_request', message: parsed.error }, 400);
   }
 
-  if (parsed.depth !== 'fast' && parsed.depth !== 'deep') {
+  if (parsed.depth !== 'fast' && parsed.depth !== 'deep' && parsed.depth !== 'sandbox') {
     return c.json(
       {
         error: 'unsupported_depth',
-        message: 'sandbox audits ship in Sprint 4; fast and deep supported for npm and pypi',
+        message: 'depth must be fast, deep, or sandbox',
       },
       400,
     );
@@ -450,6 +457,43 @@ app.get('/v1/guard/pypi/:name/:version/semgrep', async (c) => {
   }
 });
 
+/** gVisor PyPI install sandbox (Epic 4.4) */
+app.get('/v1/guard/pypi/:name/:version/sandbox', async (c) => {
+  const name = decodeURIComponent(c.req.param('name'));
+  const version = c.req.param('version');
+  const probe = await probeSandboxRuntime();
+  if (!probe.ready) {
+    return c.json(
+      { error: 'sandbox_unavailable', message: probe.message, checks: probe.checks },
+      503,
+    );
+  }
+  try {
+    const doc = await pypi.getVersion(name, version);
+    const { artifact, inventory } = await fetchPypiInventory(name, version, doc.urls);
+    const sandbox = await runPypiInstallSandbox({
+      extract_dir: artifact.extract_dir,
+      inventory,
+      name,
+      version,
+    });
+    return c.json({ name, version, sandbox });
+  } catch (err) {
+    if (err instanceof PypiRegistryError) {
+      return c.json({ error: err.code, message: err.message }, err.status === 404 ? 404 : 502);
+    }
+    if (err instanceof PypiArtifactError) {
+      return c.json({ error: err.code, message: err.message }, pypiArtifactStatus(err));
+    }
+    if (err instanceof SandboxError) {
+      const status =
+        err.code === 'docker_missing' || err.code === 'runsc_missing' ? 503 : 502;
+      return c.json({ error: err.code, message: err.message }, status);
+    }
+    throw err;
+  }
+});
+
 /** Live npm version doc — register before packument route */
 app.get('/v1/guard/npm/:name/:version', async (c) => {
   const name = decodeURIComponent(c.req.param('name'));
@@ -623,6 +667,43 @@ app.get('/v1/guard/npm/:name/:version/semgrep', async (c) => {
     }
     if (err instanceof SemgrepError) {
       const status = err.code === 'semgrep_missing' ? 503 : 502;
+      return c.json({ error: err.code, message: err.message }, status);
+    }
+    throw err;
+  }
+});
+
+/** gVisor npm lifecycle sandbox (Epic 4.3) */
+app.get('/v1/guard/npm/:name/:version/sandbox', async (c) => {
+  const name = decodeURIComponent(c.req.param('name'));
+  const version = c.req.param('version');
+  const probe = await probeSandboxRuntime();
+  if (!probe.ready) {
+    return c.json(
+      { error: 'sandbox_unavailable', message: probe.message, checks: probe.checks },
+      503,
+    );
+  }
+  try {
+    const doc = await npm.getVersion(name, version);
+    const { artifact, inventory } = await fetchNpmInventory(name, version, doc);
+    const sandbox = await runNpmLifecycleSandbox({
+      extract_dir: artifact.extract_dir,
+      inventory,
+      name,
+      version,
+    });
+    return c.json({ name, version, sandbox });
+  } catch (err) {
+    if (err instanceof NpmRegistryError) {
+      return c.json({ error: err.code, message: err.message }, err.status === 404 ? 404 : 502);
+    }
+    if (err instanceof ArtifactError) {
+      return c.json({ error: err.code, message: err.message }, artifactStatus(err));
+    }
+    if (err instanceof SandboxError) {
+      const status =
+        err.code === 'docker_missing' || err.code === 'runsc_missing' ? 503 : 502;
       return c.json({ error: err.code, message: err.message }, status);
     }
     throw err;

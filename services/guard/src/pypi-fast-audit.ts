@@ -4,6 +4,7 @@ import { fetchPypiInventory, PypiArtifactError } from '@nabuos/pypi-artifact';
 import { PypiRegistryError, type createPypiRegistryClient } from '@nabuos/pypi-registry';
 import type { createOsvClient } from '@nabuos/osv';
 import { SemgrepError } from '@nabuos/semgrep';
+import { SandboxError } from '@nabuos/sandbox';
 import {
   enrichPypiPackage,
   GuardTriageError,
@@ -13,6 +14,7 @@ import {
 import { upsertPhase } from './audit-phases.js';
 import { saveAudit } from './audit-store.js';
 import { runDeepAuditPhases } from './deep-audit.js';
+import { runSandboxAuditPhases } from './sandbox-audit.js';
 
 type PypiClient = ReturnType<typeof createPypiRegistryClient>;
 type DepsDevClient = ReturnType<typeof createDepsDevClient>;
@@ -76,7 +78,7 @@ export async function runPypiFastAudit(
     upsertPhase(job.phases, 'triage', 'completed');
     job.fast_verdict = triageToVerdict(triage);
 
-    if (job.depth === 'deep') {
+    if (job.depth === 'deep' || job.depth === 'sandbox') {
       const dir = extractDir;
       if (!dir) {
         throw new Error('extract_dir missing after artifact phase');
@@ -85,6 +87,18 @@ export async function runPypiFastAudit(
     } else {
       job.deep_verdict = null;
       job.mind_investigation = null;
+    }
+
+    if (job.depth === 'sandbox') {
+      const dir = extractDir;
+      if (!dir) {
+        throw new Error('extract_dir missing for sandbox phase');
+      }
+      const prior = job.deep_verdict ?? job.fast_verdict;
+      if (!prior) {
+        throw new Error('verdict missing before sandbox phase');
+      }
+      await runSandboxAuditPhases(job, prior, dir, inventory);
     }
 
     job.status = 'completed';
@@ -104,7 +118,8 @@ export async function runPypiFastAudit(
       !(err instanceof PypiRegistryError) &&
       !(err instanceof PypiArtifactError) &&
       !(err instanceof GuardTriageError) &&
-      !(err instanceof SemgrepError)
+      !(err instanceof SemgrepError) &&
+      !(err instanceof SandboxError)
     ) {
       throw err;
     }

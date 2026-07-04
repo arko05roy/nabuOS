@@ -1,0 +1,23 @@
+{
+  "name": "@nabuos/sandbox",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "self-check": "node --input-type=module -e \"import { sandboxSelfCheck } from './dist/index.js'; await sandboxSelfCheck()\"",
+    "self-check:lifecycle": "node --input-type=module -e \"import { lifecycleSelfCheck } from './dist/index.js'; lifecycleSelfCheck(); console.log('ok lifecycle')\""
+  },
+  "dependencies": {
+    "@nabuos/npm-artifact": "workspace:*",
+    "@nabuos/pypi-artifact": "workspace:*",
+    "@nabuos/types": "workspace:*"
+  }
+}

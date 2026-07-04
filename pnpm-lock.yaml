@@ -113,6 +113,18 @@ importers:
 
   packages/pypi-registry: {}
 
+  packages/sandbox:
+    dependencies:
+      '@nabuos/npm-artifact':
+        specifier: workspace:*
+        version: link:../npm-artifact
+      '@nabuos/pypi-artifact':
+        specifier: workspace:*
+        version: link:../pypi-artifact
+      '@nabuos/types':
+        specifier: workspace:*
+        version: link:../types
+
   packages/sdk:
     dependencies:
       '@nabuos/types':
@@ -144,6 +156,9 @@ importers:
       '@nabuos/service-kit':
         specifier: workspace:*
         version: link:../../packages/service-kit
+      '@nabuos/types':
+        specifier: workspace:*
+        version: link:../../packages/types
       hono:
         specifier: ^4.7.11
         version: 4.12.27
@@ -178,6 +193,9 @@ importers:
       '@nabuos/pypi-registry':
         specifier: workspace:*
         version: link:../../packages/pypi-registry
+      '@nabuos/sandbox':
+        specifier: workspace:*
+        version: link:../../packages/sandbox
       '@nabuos/semgrep':
         specifier: workspace:*
         version: link:../../packages/semgrep
@@ -269,9 +287,15 @@ importers:
       '@hono/node-server':
         specifier: ^1.14.4
         version: 1.19.14(hono@4.12.27)
+      '@nabuos/sandbox':
+        specifier: workspace:*
+        version: link:../../packages/sandbox
       '@nabuos/service-kit':
         specifier: workspace:*
         version: link:../../packages/service-kit
+      '@nabuos/types':
+        specifier: workspace:*
+        version: link:../../packages/types
       hono:
         specifier: ^4.7.11
         version: 4.12.27

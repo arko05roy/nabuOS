@@ -1,7 +1,7 @@
 # nabuOS Agile Plan
 
-Version: 0.7  
-Date: 2026-07-04 (Sprint 3 Epics 3.1–3.2 + Mind API shipped)  
+Version: 0.8  
+Date: 2026-07-04 (Sprint 4 Sandbox + api-gateway proxy shipped)  
 Product name: nabuOS  
 North star: A real agent operating system where package trust, secrets, deployment, memory, and decision-making are exposed as usable services, and where every agent decision is backed by BTL Runtime + evidence.
 
@@ -30,7 +30,7 @@ See `docs/scope.md`.
 ```
 apps/web
 services/api-gateway, guard, mind, vault, run, sandbox-worker, pulse
-packages/types, sdk, service-kit, btl-runtime, npm-registry, npm-artifact, pypi-registry, pypi-artifact, deps-dev, osv, guard-triage, semgrep, env-secrets
+packages/types, sdk, service-kit, btl-runtime, npm-registry, npm-artifact, pypi-registry, pypi-artifact, deps-dev, osv, guard-triage, semgrep, sandbox, env-secrets
 infra/, docs/
 ```
 
@@ -40,12 +40,12 @@ Stack: **pnpm workspaces**, **TypeScript (ESM)**, **Hono** + `@hono/node-server`
 
 | Service | Port | `/readyz` |
 |---------|------|-----------|
-| api-gateway | 3100 | process |
+| api-gateway | 3100 | process + upstream `/healthz` for guard/mind/vault/run/sandbox/pulse |
 | guard | 3001 | process; triage needs `GATEWAY_API_KEY` — start with `node --env-file=../../.env dist/index.js` |
 | mind | 3002 | process + live BTL `GET /v1/models` |
 | vault | 3003 | process + env secret handles configured |
 | run | 3004 | process |
-| sandbox-worker | 3005 | process |
+| sandbox-worker | 3005 | process + Docker + `runsc` runtime |
 | pulse | 3006 | process + guard + mind reachability |
 
 ### Scripts
@@ -73,6 +73,10 @@ Stack: **pnpm workspaces**, **TypeScript (ESM)**, **Hono** + `@hono/node-server`
 | `pnpm smoke:vault` | Live Vault handles + env resolve; stored secrets when `VAULT_ENCRYPTION_KEY` set |
 | `pnpm smoke:run` | Live Run deploy + BTL job (`guard` + `vault` + `run`; real npm skill + env BTL secret) |
 | `pnpm smoke:pulse` | Live Pulse watchlist + Guard drift check (`chalk` baseline; guard + mind + pulse; `GATEWAY_API_KEY`) |
+| `pnpm smoke:sandbox` | Live gVisor worker run (`lodash@4.17.21`; Docker + runsc + sandbox images) |
+| `pnpm smoke:sandbox-audit` | Live npm sandbox audit job (`depth: sandbox`; guard + Docker + runsc + `GATEWAY_API_KEY`) |
+| `pnpm smoke:pypi-sandbox-audit` | Live PyPI sandbox audit job (`requests@2.31.0`; same runtime requirements) |
+| `pnpm smoke:gateway` | Live api-gateway reverse proxy to guard (`lodash@4.17.21`) |
 
 ### Sprint 0 status
 
@@ -118,6 +122,29 @@ Stack: **pnpm workspaces**, **TypeScript (ESM)**, **Hono** + `@hono/node-server`
 | 3.2 | Semgrep finding ingestion | **Done** (`parseSemgrepOutput`, findings on audit job + per-route `GET .../semgrep`, `pnpm smoke:semgrep`) |
 | 3.3 | Deep verdict + Mind investigation | **Done** (`computeDeepVerdict` guard-score-v0.2; `needsMindInvestigation` → live `POST /v1/mind/runs` incident mode; `mind_investigation` on audit job; `pnpm smoke:deep-audit-mind`) |
 
+### Sprint 4 status — **DONE** (gVisor sandbox dynamic analysis)
+
+| Epic | Story | Status |
+|------|-------|--------|
+| 4.1 | gVisor runtime (`runsc` + Docker probe) | **Done** (`@nabuos/sandbox`, `infra/sandbox/`, `pnpm smoke:sandbox`) |
+| 4.2 | Networkless execution (RO artifact, scratch, limits) | **Done** (`--network=none`, `--read-only`, memory/cpu/pids caps) |
+| 4.3 | npm dynamic phase | **Done** (`runNpmLifecycleSandbox`, guard `GET .../sandbox`, audit `depth: sandbox`) |
+| 4.4 | PyPI dynamic phase | **Done** (`runPypiInstallSandbox`, guard PyPI sandbox route, `pnpm smoke:pypi-sandbox-audit`) |
+| 4.5 | Sandbox verdict + Mind | **Done** (`guard-score-v0.3`, `needsSandboxMindInvestigation`, `pnpm smoke:sandbox-audit`) |
+
+### api-gateway status — **DONE** (v0 reverse proxy)
+
+| Route prefix | Upstream |
+|--------------|----------|
+| `/v1/guard/*` | guard `:3001` |
+| `/v1/mind/*` | mind `:3002` |
+| `/v1/vault/*` | vault `:3003` |
+| `/v1/run/*` | run `:3004` |
+| `/v1/sandbox/*` | sandbox-worker `:3005` |
+| `/v1/pulse/*` | pulse `:3006` |
+
+`x-nabu-request-id` assigned on every proxied request. `/readyz` probes all upstream `/healthz`. Smoke: `pnpm smoke:gateway`.
+
 ### Mind API status — **DONE** (Epic 5.3 core; RetainDB deferred)
 
 | Epic | Story | Status |
@@ -143,7 +170,7 @@ Stack: **pnpm workspaces**, **TypeScript (ESM)**, **Hono** + `@hono/node-server`
 - `GET /v1/guard/npm/:name/:version/vulnerabilities` — OSV `querybatch` + vuln details for graph packages (`phases`, `cache_hits`)
 - `GET /v1/guard/npm/:name/:version/triage` — BTL triage JSON (`risk_score`, `verdict_recommendation`, `findings`, `btl_runtime` headers)
 - `GET /v1/guard/npm/:name/:version/semgrep` — real Semgrep scan on extracted source (`findings`, `raw_path`)
-- `POST /v1/guard/audits` — start async audit (`ecosystem: npm|pypi`, `depth: fast|deep`); `Idempotency-Key` supported
+- `POST /v1/guard/audits` — start async audit (`ecosystem: npm|pypi`, `depth: fast|deep|sandbox`); `Idempotency-Key` supported
 - `GET /v1/guard/audits/:id` — poll audit job (`status`, `phases`, `fast_verdict`, `deep_verdict`, `semgrep`, `artifact`)
 - `GET /v1/guard/check?ecosystem=&name=&version=` — cached completed verdict or `404 not_found`
 - `GET /v1/guard/pypi/:name` — live project JSON from `pypi.org` (release list, latest version)
@@ -202,7 +229,21 @@ Stack: **pnpm workspaces**, **TypeScript (ESM)**, **Hono** + `@hono/node-server`
 - `POST /v1/run/agents/:agent_id/jobs` — enqueue live BTL job (Vault-resolved key; summary only in response)
 - `GET /v1/run/jobs/:job_id` — poll job result
 
-**Other services** (api-gateway, sandbox-worker): health endpoints only.
+**Sandbox-worker** (`services/sandbox-worker`, port 3005):
+
+- `GET /healthz`, `GET /readyz` — probes Docker + `runsc` via `probeSandboxRuntime`
+- `POST /v1/sandbox/runs` — async gVisor run (`extract_dir`, `image`, `command`)
+- `GET /v1/sandbox/runs/:id` — poll sandbox run
+- `POST /v1/sandbox/npm-lifecycle` — sync npm install-script phase
+- `POST /v1/sandbox/pypi-install` — sync PyPI install/compile phase
+
+**api-gateway** (`services/api-gateway`, port 3100):
+
+- `GET /healthz`, `GET /readyz` — probes all upstream service `/healthz`
+- Reverse proxy: `/v1/guard/*`, `/v1/mind/*`, `/v1/vault/*`, `/v1/run/*`, `/v1/sandbox/*`, `/v1/pulse/*`
+- Sets `x-nabu-request-id` on every proxied response
+
+**Other services** (none): all listed services expose product routes.
 
 ### BTL Runtime integration notes (learned)
 
@@ -248,10 +289,11 @@ Stack: **pnpm workspaces**, **TypeScript (ESM)**, **Hono** + `@hono/node-server`
 ### Public audit job API notes (learned, Epic 1.6)
 
 - v0 store: local FS at `.nabu-artifacts/audits/{audit_id}.json` + check index under `audits/check/`; ponytail upgrade path = Postgres `audit_jobs`
-- `POST /v1/guard/audits` returns `202` with `audit_id`, runs pipeline async (`metadata` → `artifact` → `inventory` → `deps.dev` → `osv` → `triage`)
+- `POST /v1/guard/audits` returns `202` with `audit_id`, runs pipeline async (`metadata` → `artifact` → `inventory` → `deps.dev` → `osv` → `triage` → optional `semgrep` → optional `sandbox`)
 - `fast_verdict.score` = `100 - triage.risk_score` (`guard-score-v0.1`); `fast_verdict.verdict` from BTL triage
+- `deep_verdict` from Semgrep (`guard-score-v0.2`) or sandbox (`guard-score-v0.3`)
 - `Idempotency-Key` header + in-flight dedupe per `ecosystem:name:version:depth`
-- v0 limits: `ecosystem` must be `npm`; `depth` must be `fast` (`pypi` / `deep` / `sandbox` → `400`)
+- `depth`: `fast` | `deep` | `sandbox`; `ecosystem`: `npm` | `pypi`
 - Live smoke: `pnpm smoke:audit` (`axios@1.6.0`; guard needs `--env-file=../../.env`)
 - Verified live: `axios@1.6.0` audit → `verdict=block`, `score=15`, 6 phases completed
 
@@ -292,6 +334,8 @@ Stack: **pnpm workspaces**, **TypeScript (ESM)**, **Hono** + `@hono/node-server`
 | `@nabuos/deps-dev` | Live deps.dev `GetDependencies` (npm + pypi) with local graph cache |
 | `@nabuos/osv` | OSV `querybatch` + vuln detail fetch with local cache |
 | `@nabuos/guard-triage` | BTL triage prompt + `enrichNpmPackage` / `enrichPypiPackage` orchestration |
+| `@nabuos/semgrep` | Live Semgrep scan + JSON parse on extracted package source |
+| `@nabuos/sandbox` | gVisor Docker+runsc execution, npm lifecycle + PyPI install phases, `guard-score-v0.3` verdict |
 | `@nabuos/env-secrets` | v0 vault hack: `secret://env/gateway-api-key` → `GATEWAY_API_KEY` |
 
 ### Definition of Done — partial compliance
@@ -303,7 +347,7 @@ Sprint 0 stories satisfied where marked **Done**, with these gaps still open for
 - S3-compatible artifact object storage (Epic 1.2 v0 uses local FS only)
 - OSV/deps.dev caches are local FS only (Epic 1.4 v0; Postgres later)
 - Audit job persistence is local FS only (Epic 1.6 v0; Postgres later)
-- `POST /v1/guard/audits` is npm + fast depth only; PyPI audit job path not wired yet
+- v0 limits: audit job store is local FS only (Postgres later); `depth: sandbox` requires Docker+runsc on guard host
 - CI pipeline and deployment manifests (`infra/` placeholder)
 - RetainDB and Infisical acceptance criteria explicitly waived until keys are provisioned
 
@@ -2290,9 +2334,9 @@ If starting today:
 7. ~~Add Vault (Infisical provider when provisioned; env-secrets covers v0).~~ **Done (v0)** — policy + audit + FS secrets; Infisical when `INFISICAL_*` provisioned
 8. ~~Add Run.~~ **Done (v0)** — Guard-gated deploy, Vault binding, live BTL jobs; `pnpm smoke:run`
 9. ~~Add Pulse package watch.~~ **Done (v0)** — `services/pulse` + `apps/web`; `pnpm smoke:pulse`
-10. Add gVisor sandbox.
+10. ~~Add gVisor sandbox.~~ **Done** — `@nabuos/sandbox`, `services/sandbox-worker`, audit `depth: sandbox`, `pnpm smoke:sandbox-audit`
 
-**Completed so far (2026-07-04):** Sprint 0 foundation, BTL client, env-based vault hack, npm fast audit (Sprint 1), public audit job API (Epic 1.6), PyPI fast audit per-route pipeline (Sprint 2 Epics 2.1–2.4).
+**Completed so far (2026-07-04):** Sprint 0 foundation, BTL client, env-based vault hack, npm fast audit (Sprint 1), public audit job API (Epic 1.6), PyPI fast audit per-route pipeline (Sprint 2), Semgrep deep phase (Sprint 3), Mind/Vault/Run/Pulse v0, gVisor sandbox (Sprint 4), api-gateway reverse proxy.
 
 Reason:
 
