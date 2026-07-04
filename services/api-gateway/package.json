@@ -5,12 +5,13 @@
   "type": "module",
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "dev": "tsx watch src/index.ts",
-    "start": "node dist/index.js",
+    "dev": "OTEL_SERVICE_NAME=api-gateway tsx watch --import @nabuos/otel/instrument src/index.ts",
+    "start": "OTEL_SERVICE_NAME=api-gateway node --import @nabuos/otel/instrument dist/index.js",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "@hono/node-server": "^1.14.4",
+    "@nabuos/otel": "workspace:*",
     "@nabuos/service-kit": "workspace:*",
     "@nabuos/types": "workspace:*",
     "hono": "^4.7.11"

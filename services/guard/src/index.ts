@@ -35,6 +35,7 @@ import {
   isYanked,
   PypiRegistryError,
 } from '@nabuos/pypi-registry';
+import { createLogger, withTelemetry } from '@nabuos/otel';
 import { createServiceApp } from '@nabuos/service-kit';
 import type { AuditJob, CreateAuditRequest, GuardCheckResponse } from '@nabuos/types';
 import {
@@ -58,8 +59,9 @@ const osv = createOsvClient();
 /** package key → audit_id while fast audit is in flight */
 const inflight = new Map<string, string>();
 
+const log = createLogger('guard');
 const health = createServiceApp('guard');
-const app = new Hono();
+const app = withTelemetry(new Hono(), 'guard');
 
 app.route('/', health);
 
@@ -724,7 +726,7 @@ app.get('/v1/guard/npm/:name', async (c) => {
 });
 
 const server = serve({ fetch: app.fetch, port });
-console.log(`guard listening on :${port}`);
+log.info(`guard listening on :${port}`);
 
 process.on('SIGINT', () => {
   server.close();
@@ -733,7 +735,7 @@ process.on('SIGINT', () => {
 process.on('SIGTERM', () => {
   server.close((err) => {
     if (err) {
-      console.error(err);
+      log.error('shutdown failed', { error: err instanceof Error ? err.message : String(err) });
       process.exit(1);
     }
     process.exit(0);
