@@ -3,6 +3,7 @@ import type { createDepsDevClient } from '@nabuos/deps-dev';
 import { fetchNpmInventory, ArtifactError } from '@nabuos/npm-artifact';
 import { NpmRegistryError, type createNpmRegistryClient } from '@nabuos/npm-registry';
 import type { createOsvClient } from '@nabuos/osv';
+import { computeDeepVerdict, scanSemgrep, SemgrepError } from '@nabuos/semgrep';
 import {
   enrichNpmPackage,
   GuardTriageError,
@@ -60,6 +61,8 @@ export async function runNpmFastAudit(
   job.status = 'running';
   await saveAudit(job);
 
+  let extractDir: string | undefined;
+
   try {
     upsertPhase(job.phases, 'metadata', 'running');
     await saveAudit(job);
@@ -70,6 +73,7 @@ export async function runNpmFastAudit(
     upsertPhase(job.phases, 'artifact', 'running');
     await saveAudit(job);
     const { artifact, inventory } = await fetchNpmInventory(name, version, doc);
+    extractDir = artifact.extract_dir;
     job.artifact = {
       url: artifact.url,
       sha256: artifact.sha256,
@@ -102,7 +106,22 @@ export async function runNpmFastAudit(
     });
     upsertPhase(job.phases, 'triage', 'completed');
     job.fast_verdict = triageToVerdict(triage);
-    job.deep_verdict = job.depth === 'fast' ? null : null;
+
+    if (job.depth === 'deep') {
+      upsertPhase(job.phases, 'semgrep', 'running');
+      await saveAudit(job);
+      const dir = extractDir;
+      if (!dir) {
+        throw new Error('extract_dir missing after artifact phase');
+      }
+      const semgrep = await scanSemgrep({ auditId: job.audit_id, extractDir: dir });
+      job.semgrep = semgrep;
+      upsertPhase(job.phases, 'semgrep', 'completed');
+      job.deep_verdict = computeDeepVerdict(job.fast_verdict, semgrep.findings);
+    } else {
+      job.deep_verdict = null;
+    }
+
     job.status = 'completed';
     await saveAudit(job);
   } catch (err) {
@@ -119,7 +138,8 @@ export async function runNpmFastAudit(
     if (
       !(err instanceof NpmRegistryError) &&
       !(err instanceof ArtifactError) &&
-      !(err instanceof GuardTriageError)
+      !(err instanceof GuardTriageError) &&
+      !(err instanceof SemgrepError)
     ) {
       throw err;
     }

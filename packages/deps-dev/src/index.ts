@@ -113,5 +113,9 @@ export function createDepsDevClient(fetchImpl: typeof fetch = fetch) {
     return getDependencies('npm', name, version);
   }
 
-  return { getDependencies, getNpmDependencies };
+  async function getPypiDependencies(name: string, version: string): Promise<DependencyGraph> {
+    return getDependencies('pypi', name, version);
+  }
+
+  return { getDependencies, getNpmDependencies, getPypiDependencies };
 }

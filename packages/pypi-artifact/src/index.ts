@@ -3,6 +3,7 @@ import type { PypiReleaseFile } from '@nabuos/pypi-registry';
 import { downloadArtifact, PypiArtifactError } from './download.js';
 import { extractDistribution } from './extract.js';
 import { sha256Hex, verifySha256 } from './integrity.js';
+import { buildPypiInventory, type PypiInventory } from './inventory.js';
 import { selectPypiArtifact } from './select.js';
 import {
   artifactKey,
@@ -16,6 +17,15 @@ import {
 export { PypiArtifactError } from './download.js';
 export { sha256Hex, verifySha256 } from './integrity.js';
 export { selectPypiArtifact } from './select.js';
+export {
+  buildPypiInventory,
+  parseMetadata,
+  parseEntryPoints,
+  parseSetupPy,
+  parseSetupCfg,
+  type PypiInventory,
+  type PypiFileStats,
+} from './inventory.js';
 
 export interface PypiArtifactResult {
   name: string;
@@ -98,4 +108,15 @@ export async function fetchPypiArtifact(
     extracted_file_count: extractedFiles.length,
     extracted_files: extractedFiles,
   };
+}
+
+export async function fetchPypiInventory(
+  name: string,
+  version: string,
+  urls: PypiReleaseFile[],
+  fetchImpl: typeof fetch = fetch,
+): Promise<{ artifact: PypiArtifactResult; inventory: PypiInventory }> {
+  const artifact = await fetchPypiArtifact(name, version, urls, fetchImpl);
+  const inventory = await buildPypiInventory(artifact.extract_dir);
+  return { artifact, inventory };
 }

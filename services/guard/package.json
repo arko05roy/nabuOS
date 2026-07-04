@@ -18,6 +18,7 @@
     "@nabuos/osv": "workspace:*",
     "@nabuos/pypi-registry": "workspace:*",
     "@nabuos/pypi-artifact": "workspace:*",
+    "@nabuos/semgrep": "workspace:*",
     "@nabuos/service-kit": "workspace:*",
     "@nabuos/types": "workspace:*",
     "hono": "^4.7.11"

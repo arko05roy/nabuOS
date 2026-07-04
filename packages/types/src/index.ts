@@ -68,6 +68,29 @@ export interface GuardCheckMiss {
 
 export type GuardCheckResponse = GuardCheckHit | GuardCheckMiss;
 
+export type SemgrepSeverity = 'critical' | 'high' | 'medium' | 'low' | 'info';
+
+/** Parsed Semgrep finding linked to an audit job. */
+export interface SemgrepFinding {
+  rule_id: string;
+  severity: SemgrepSeverity;
+  path: string;
+  start_line: number;
+  end_line: number;
+  message: string;
+  metadata?: Record<string, unknown>;
+}
+
+/** Semgrep scan output persisted on deep audits. */
+export interface SemgrepRun {
+  configs: string[];
+  finding_count: number;
+  findings: SemgrepFinding[];
+  raw_path: string;
+  scan_duration_ms: number;
+  semgrep_version?: string;
+}
+
 /** Guard audit job persisted and returned by POST/GET /v1/guard/audits. */
 export interface AuditJob {
   audit_id: string;
@@ -79,12 +102,36 @@ export interface AuditJob {
   artifact?: AuditArtifact;
   fast_verdict?: AuditVerdict | null;
   deep_verdict?: AuditVerdict | null;
+  semgrep?: SemgrepRun;
   phases: AuditPhase[];
   created_at: string;
   updated_at: string;
 }
 
 export type MindMode = 'brief' | 'deep' | 'policy' | 'incident';
+
+export type MindStepType = 'plan' | 'gather' | 'critique' | 'decide' | 'report';
+
+export type MindStepStatus = 'pending' | 'running' | 'completed' | 'failed';
+
+export interface MindStep {
+  step_id: string;
+  type: MindStepType;
+  status: MindStepStatus;
+  summary?: string;
+  evidence_refs: MindEvidence[];
+  btl_request_id?: string;
+  started_at?: string;
+  completed_at?: string;
+  error?: string;
+}
+
+/** POST /v1/mind/runs request body. */
+export interface CreateMindRunRequest {
+  goal: string;
+  mode: MindMode;
+  context_refs?: MindContextRef[];
+}
 
 export type MindStatus = 'pending' | 'running' | 'completed' | 'failed';
 
@@ -134,6 +181,7 @@ export interface MindRun {
   goal: string;
   mode: MindMode;
   context_refs?: MindContextRef[];
+  steps: MindStep[];
   decision?: MindDecision;
   confidence?: number;
   summary?: string;

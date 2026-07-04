@@ -1,7 +1,7 @@
 # nabuOS Agile Plan
 
-Version: 0.5  
-Date: 2026-07-04 (Epics 1.6, 2.1–2.2 shipped)  
+Version: 0.6  
+Date: 2026-07-04 (Epics 2.3–2.4 shipped; Sprint 2 complete)  
 Product name: nabuOS  
 North star: A real agent operating system where package trust, secrets, deployment, memory, and decision-making are exposed as usable services, and where every agent decision is backed by BTL Runtime + evidence.
 
@@ -62,6 +62,8 @@ Stack: **pnpm workspaces**, **TypeScript (ESM)**, **Hono** + `@hono/node-server`
 | `pnpm smoke:audit` | Live unified fast audit job API (`POST` + poll + `check`; needs `GATEWAY_API_KEY`) |
 | `pnpm smoke:pypi` | Live PyPI metadata via guard (`requests`, `flask`, `Django`) |
 | `pnpm smoke:pypi-artifact` | Live PyPI wheel download, SHA256 verify, extract (`requests@2.31.0`, `flask@3.0.0`) |
+| `pnpm smoke:pypi-inventory` | Live PyPI inventory from extracted wheel (`requests`, `flask`) |
+| `pnpm smoke:pypi-enrichment` | Live PyPI deps.dev graph + OSV batch (`requests@2.31.0`) |
 
 ### Sprint 0 status
 
@@ -90,14 +92,14 @@ Stack: **pnpm workspaces**, **TypeScript (ESM)**, **Hono** + `@hono/node-server`
 | 1.5 | BTL Runtime triage | **Done** (`@nabuos/guard-triage`, guard `GET /v1/guard/npm/:name/:version/triage`, `pnpm smoke:triage`) |
 | 1.6 | Public audit API | **Done** (`POST /v1/guard/audits`, `GET /v1/guard/audits/:id`, `GET /v1/guard/check`, `pnpm smoke:audit`) |
 
-### Sprint 2 status (Epics 2.3–2.4 remaining)
+### Sprint 2 status — **DONE**
 
 | Epic | Story | Status |
 |------|-------|--------|
 | 2.1 | PyPI metadata adapter | **Done** (`@nabuos/pypi-registry`, guard `GET /v1/guard/pypi/:name`, `GET /v1/guard/pypi/:name/:version`, `pnpm smoke:pypi`) |
 | 2.2 | PyPI artifact download + hash | **Done** (`@nabuos/pypi-artifact`, guard `GET /v1/guard/pypi/:name/:version/artifact`, `pnpm smoke:pypi-artifact`) |
-| 2.3 | Python inventory | **Not started** |
-| 2.4 | deps.dev + OSV PyPI | **Not started** |
+| 2.3 | Python inventory | **Done** (`buildPypiInventory`, guard `GET /v1/guard/pypi/:name/:version/inventory`, `pnpm smoke:pypi-inventory`) |
+| 2.4 | deps.dev + OSV PyPI | **Done** (`getPypiDependencies`, `enrichPypiPackage`, guard `/dependencies` + `/vulnerabilities`, `pnpm smoke:pypi-enrichment`) |
 
 ### Live API routes (implemented)
 
@@ -119,8 +121,19 @@ Stack: **pnpm workspaces**, **TypeScript (ESM)**, **Hono** + `@hono/node-server`
 - `GET /v1/guard/pypi/:name` — live project JSON from `pypi.org` (release list, latest version)
 - `GET /v1/guard/pypi/:name/:version` — Simple JSON + release JSON merge (`urls`, `simple_files`, `yanked_files`, `all_files_yanked`)
 - `GET /v1/guard/pypi/:name/:version/artifact` — download wheel (prefer) or sdist from `files.pythonhosted.org`, verify SHA256, cache + extract
+- `GET /v1/guard/pypi/:name/:version/inventory` — `{ artifact, inventory }` from extracted wheel/sdist
+  - Inventory: `requires_dist`, `requires_python`, `console_scripts`, `entry_points`, `native_extensions`, `sources`, `files`
+- `GET /v1/guard/pypi/:name/:version/dependencies` — live deps.dev PyPI graph (`nodes`, `edges`, cached)
+- `GET /v1/guard/pypi/:name/:version/vulnerabilities` — OSV `querybatch` with ecosystem `PyPI` + cached vuln details
 
-**npm fast audit pipeline** (per-route or via `POST /v1/guard/audits`):
+**PyPI fast audit pipeline (v0, per-route — job API still npm-only):**
+
+1. `GET .../pypi/:name/:version` — Simple JSON + release metadata
+2. `GET .../artifact` — wheel/sdist download + SHA256 verify + extract
+3. `GET .../inventory` — deterministic package inventory (METADATA / pyproject / setup.cfg / setup.py read-only)
+4. `GET .../dependencies` — deps.dev resolved graph
+5. `GET .../vulnerabilities` — OSV batch + cached vuln details
+
 
 1. `GET .../:version` — registry metadata
 2. `GET .../artifact` — download + SRI verify + extract
@@ -210,6 +223,15 @@ Stack: **pnpm workspaces**, **TypeScript (ESM)**, **Hono** + `@hono/node-server`
 - Live smoke: `pnpm smoke:pypi` (`requests`, `flask`, `Django`); `pnpm smoke:pypi-artifact` (`requests@2.31.0`, `flask@3.0.0`)
 - Verified live: `requests@2.31.0` wheel → 23 extracted files, `digest_verified=true`; `Django` name normalizes to `django`
 
+### PyPI inventory + enrichment notes (learned, Epic 2.3–2.4)
+
+- `buildPypiInventory` — reads wheel `.dist-info/METADATA`, `entry_points.txt`; fallback `pyproject.toml`, `setup.cfg`, `setup.py` (regex read-only, never exec)
+- Guard `GET /v1/guard/pypi/:name/:version/inventory` → `{ artifact, inventory }` with `requires_dist`, `sources[]`
+- deps.dev PyPI: `GET .../systems/pypi/packages/{name}/versions/{version}:dependencies` via `getPypiDependencies`
+- OSV batch uses ecosystem `PyPI` (capital P — case-sensitive)
+- `@nabuos/guard-triage` — `enrichPypiPackage` orchestrates deps.dev + OSV for PyPI
+- Live smoke: `pnpm smoke:pypi-inventory` (`requests`, `flask`); `pnpm smoke:pypi-enrichment` (`requests@2.31.0` → 5 graph nodes, 55 vuln refs)
+
 ### Packages shipped
 
 | Package | Role |
@@ -221,10 +243,10 @@ Stack: **pnpm workspaces**, **TypeScript (ESM)**, **Hono** + `@hono/node-server`
 | `@nabuos/npm-registry` | Live npm registry client (`getPackument`, `getVersion`) |
 | `@nabuos/npm-artifact` | Live tarball download, SRI/shasum verify, local artifact cache, extract, `buildInventory`; dep: `tar` |
 | `@nabuos/pypi-registry` | Live PyPI Simple JSON + release JSON client (`getVersion`, `normalizePackageName`) |
-| `@nabuos/pypi-artifact` | Live PyPI wheel/sdist download, SHA256 verify, local cache, extract; dep: `tar` |
-| `@nabuos/deps-dev` | Live deps.dev `GetDependencies` client with local graph cache |
+| `@nabuos/pypi-artifact` | PyPI wheel/sdist download, SHA256 verify, extract, `buildPypiInventory`, `fetchPypiInventory`; dep: `tar` |
+| `@nabuos/deps-dev` | Live deps.dev `GetDependencies` (npm + pypi) with local graph cache |
 | `@nabuos/osv` | OSV `querybatch` + vuln detail fetch with local cache |
-| `@nabuos/guard-triage` | BTL triage prompt + `enrichNpmPackage` orchestration |
+| `@nabuos/guard-triage` | BTL triage prompt + `enrichNpmPackage` / `enrichPypiPackage` orchestration |
 | `@nabuos/env-secrets` | v0 vault hack: `secret://env/gateway-api-key` → `GATEWAY_API_KEY` |
 
 ### Definition of Done — partial compliance
@@ -1574,36 +1596,26 @@ Goal:
 
 - Public API can audit real PyPI package versions.
 
-**Sprint 2 progress:** Epics 2.1–2.2 done; Epics 2.3–2.4 not started.
+**Sprint 2 progress:** Epics 2.1–2.4 **done**.
 
 ### Epic 2.1: PyPI Metadata Adapter — **DONE**
 
 Stories:
 
-1. ✅ Implement Simple JSON client:
-   - `GET https://pypi.org/simple/<project>/`
-   - `Accept: application/vnd.pypi.simple.v1+json`
-
-2. ✅ Implement release metadata fallback:
-   - `GET https://pypi.org/pypi/<project>/<version>/json`
-
-3. ✅ Normalize package names per Python packaging rules.
+1. ✅ Implement Simple JSON client (`GET /simple/<project>/`, PEP 691 Accept header).
+2. ✅ Implement release metadata fallback (`GET /pypi/<project>/<version>/json`).
+3. ✅ Normalize package names per Python packaging rules (PEP 503).
 
 Acceptance:
 
-- ✅ Fetches real metadata for:
-  - `requests`
-  - `flask`
-  - `django` (smoke uses `Django` → normalizes to `django`)
-- ✅ Handles yanked files (`yanked_files`, `all_files_yanked` on version response).
+- ✅ Fetches real metadata for `requests`, `flask`, `django` (`pnpm smoke:pypi`).
+- ✅ Handles yanked files (`yanked_files`, `all_files_yanked`).
 
 ### Epic 2.2: PyPI Artifact Download and Hash — **DONE**
 
 Stories:
 
-1. ✅ Select artifact:
-   - Prefer wheel for inventory.
-   - Also support sdist.
+1. ✅ Select artifact (wheel preferred, sdist fallback).
 2. ✅ Download file from PyPI file URL.
 3. ✅ Verify SHA256 digest.
 4. ✅ Extract wheel/sdist safely.
@@ -1612,42 +1624,32 @@ Acceptance:
 
 - ✅ `requests==2.31.0` downloads and verifies (`pnpm smoke:pypi-artifact`).
 - ✅ Digest mismatch rejected (`pnpm --filter @nabuos/pypi-artifact self-check`).
-- ⏳ Yanked package warns — version route exposes yanked state; artifact route returns `422 all_yanked` when every file yanked (no dedicated yanked-only smoke yet).
+- ⏳ Yanked-only smoke not added; version route + `422 all_yanked` on artifact path cover behavior.
 
-### Epic 2.3: Python Inventory
-
-Stories:
-
-1. Parse:
-   - `pyproject.toml`
-   - `setup.py`
-   - `setup.cfg`
-   - `PKG-INFO`
-   - `METADATA`
-2. Extract:
-   - dependencies
-   - entry points
-   - console scripts
-   - native extensions
-   - declared Python version
-
-Acceptance:
-
-- Inventory uses real extracted files.
-- setup.py is read, not executed.
-
-### Epic 2.4: deps.dev and OSV PyPI
+### Epic 2.3: Python Inventory — **DONE**
 
 Stories:
 
-1. Call deps.dev for PyPI graph.
-2. Call OSV with ecosystem `PyPI`.
-3. Cache results.
+1. ✅ Parse `pyproject.toml`, `setup.py`, `setup.cfg`, `PKG-INFO`, `METADATA`.
+2. ✅ Extract dependencies, entry points, console scripts, native extensions, `requires_python`.
 
 Acceptance:
 
-- Real graph and vulnerability calls for PyPI package.
-- Ecosystem casing is correct.
+- ✅ Inventory uses real extracted files (`pnpm smoke:pypi-inventory`).
+- ✅ setup.py is read, not executed.
+
+### Epic 2.4: deps.dev and OSV PyPI — **DONE**
+
+Stories:
+
+1. ✅ Call deps.dev for PyPI graph (`getPypiDependencies`).
+2. ✅ Call OSV with ecosystem `PyPI`.
+3. ✅ Cache results.
+
+Acceptance:
+
+- ✅ Real graph + vuln calls (`pnpm smoke:pypi-enrichment`, `requests@2.31.0`).
+- ✅ Ecosystem casing correct (`PyPI`).
 
 ## 10. Sprint 3: Static Analysis with Semgrep
 
@@ -2237,7 +2239,7 @@ If starting today:
 1. ~~Build `guard-service` npm fast audit.~~ **Done** — Sprint 1 complete (Epics 1.1–1.6).
 2. ~~Add OSV/deps.dev.~~ **Done**
 3. ~~Add BTL triage.~~ **Done**
-4. ~~Add PyPI adapter.~~ **In progress** — Epics 2.1–2.2 done; continue 2.3 inventory + 2.4 enrichment.
+4. ~~Add PyPI adapter.~~ **Done** — Sprint 2 complete (Epics 2.1–2.4).
 5. Add Mind API over Guard reports.
 6. Add Semgrep deep phase.
 7. Add Vault (Infisical provider when provisioned; env-secrets covers v0).
@@ -2245,7 +2247,7 @@ If starting today:
 9. Add Pulse package watch.
 10. Add gVisor sandbox.
 
-**Completed so far (2026-07-04):** Sprint 0 foundation, BTL client, env-based vault hack, npm metadata + artifact + inventory, deps.dev/OSV enrichment, BTL guard triage, public npm fast audit job API (Epic 1.6), PyPI metadata + artifact download (Epics 2.1–2.2).
+**Completed so far (2026-07-04):** Sprint 0 foundation, BTL client, env-based vault hack, npm fast audit (Sprint 1), public audit job API (Epic 1.6), PyPI fast audit per-route pipeline (Sprint 2 Epics 2.1–2.4).
 
 Reason:
 

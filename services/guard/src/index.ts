@@ -13,11 +13,13 @@ import {
 import { createOsvClient } from '@nabuos/osv';
 import {
   enrichNpmPackage,
+  enrichPypiPackage,
   GuardTriageError,
   runGuardTriage,
 } from '@nabuos/guard-triage';
 import {
   fetchPypiArtifact,
+  fetchPypiInventory,
   PypiArtifactError,
 } from '@nabuos/pypi-artifact';
 import {
@@ -73,8 +75,10 @@ function artifactStatus(err: ArtifactError): 400 | 422 | 502 {
   return 502;
 }
 
-function initialPhases(): AuditJob['phases'] {
-  return ['metadata', 'artifact', 'inventory', 'deps.dev', 'osv', 'triage'].map((name) => ({
+function initialPhases(depth: AuditJob['depth']): AuditJob['phases'] {
+  const names = ['metadata', 'artifact', 'inventory', 'deps.dev', 'osv', 'triage'];
+  if (depth === 'deep') names.push('semgrep');
+  return names.map((name) => ({
     name,
     status: 'pending' as const,
   }));
@@ -122,15 +126,15 @@ app.post('/v1/guard/audits', async (c) => {
 
   if (parsed.ecosystem !== 'npm') {
     return c.json(
-      { error: 'unsupported_ecosystem', message: 'pypi audits ship in Sprint 2; npm only for now' },
+      { error: 'unsupported_ecosystem', message: 'audit job API supports npm only for now' },
       400,
     );
   }
-  if (parsed.depth !== 'fast') {
+  if (parsed.depth !== 'fast' && parsed.depth !== 'deep') {
     return c.json(
       {
         error: 'unsupported_depth',
-        message: 'deep and sandbox audits ship in later sprints; fast only for now',
+        message: 'sandbox audits ship in Sprint 4; fast and deep supported for npm',
       },
       400,
     );
@@ -159,7 +163,7 @@ app.post('/v1/guard/audits', async (c) => {
     depth: parsed.depth,
     fast_verdict: null,
     deep_verdict: null,
-    phases: initialPhases(),
+    phases: initialPhases(parsed.depth),
     created_at: ts,
     updated_at: ts,
   };
@@ -294,6 +298,73 @@ app.get('/v1/guard/pypi/:name/:version/artifact', async (c) => {
     }
     if (err instanceof PypiArtifactError) {
       return c.json({ error: err.code, message: err.message }, pypiArtifactStatus(err));
+    }
+    throw err;
+  }
+});
+
+app.get('/v1/guard/pypi/:name/:version/inventory', async (c) => {
+  const name = decodeURIComponent(c.req.param('name'));
+  const version = c.req.param('version');
+  try {
+    const doc = await pypi.getVersion(name, version);
+    const { artifact, inventory } = await fetchPypiInventory(name, version, doc.urls);
+    return c.json({ artifact, inventory });
+  } catch (err) {
+    if (err instanceof PypiRegistryError) {
+      return c.json({ error: err.code, message: err.message }, err.status === 404 ? 404 : 502);
+    }
+    if (err instanceof PypiArtifactError) {
+      return c.json({ error: err.code, message: err.message }, pypiArtifactStatus(err));
+    }
+    throw err;
+  }
+});
+
+/** deps.dev dependency graph for PyPI (Epic 2.4) */
+app.get('/v1/guard/pypi/:name/:version/dependencies', async (c) => {
+  const name = decodeURIComponent(c.req.param('name'));
+  const version = c.req.param('version');
+  try {
+    await pypi.getVersion(name, version);
+    const graph = await depsDev.getPypiDependencies(name, version);
+    return c.json({ name, version, ...graph });
+  } catch (err) {
+    if (err instanceof PypiRegistryError) {
+      return c.json({ error: err.code, message: err.message }, err.status === 404 ? 404 : 502);
+    }
+    const graph = {
+      nodes: [] as const,
+      edges: [] as const,
+      degraded: true,
+      source: 'deps.dev' as const,
+    };
+    return c.json({
+      name,
+      version,
+      ...graph,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+});
+
+/** OSV batch + vuln details for PyPI graph packages (Epic 2.4) */
+app.get('/v1/guard/pypi/:name/:version/vulnerabilities', async (c) => {
+  const name = decodeURIComponent(c.req.param('name'));
+  const version = c.req.param('version');
+  try {
+    await pypi.getVersion(name, version);
+    const enrichment = await enrichPypiPackage(name, version, depsDev, osv);
+    return c.json({
+      name,
+      version,
+      dependency_graph: enrichment.dependency_graph,
+      vulnerabilities: enrichment.vulnerabilities,
+      phases: enrichment.phases,
+    });
+  } catch (err) {
+    if (err instanceof PypiRegistryError) {
+      return c.json({ error: err.code, message: err.message }, err.status === 404 ? 404 : 502);
     }
     throw err;
   }

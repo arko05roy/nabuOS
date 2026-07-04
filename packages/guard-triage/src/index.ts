@@ -195,4 +195,9 @@ export async function runGuardTriage(
   return parsed;
 }
 
-export { enrichNpmPackage, type NpmEnrichmentResult, type EnrichmentPhase } from './enrichment.js';
+export {
+  enrichNpmPackage,
+  enrichPypiPackage,
+  type NpmEnrichmentResult,
+  type EnrichmentPhase,
+} from './enrichment.js';
